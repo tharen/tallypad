@@ -35,7 +35,7 @@
             color: var(--text-primary);
             font-family: system-ui, -apple-system, sans-serif;
             margin: 0;
-            height: 100vh;
+            height: 100dvh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -69,7 +69,7 @@
             border: 1px solid var(--border-color);
             padding: 0;
             text-align: center;
-            height: 48px;
+            height: 44px;
             background: var(--cell-bg);
             color: var(--text-primary);
         }
@@ -90,7 +90,7 @@
             justify-content: center;
             font-weight: bold;
             font-size: 1.25rem;
-            height: 55px;
+            height: 50px;
             box-shadow: 0 2px 0 var(--border-color);
         }
   
@@ -105,11 +105,14 @@
             background: var(--btn-bg);
             color: var(--text-primary);
             border: 1px solid var(--border-color);
-            padding: 12px;
+            padding: 0px;
+            min-width: 44px;
+            min-height: 44px;
             border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
+            font-size: 1.75rem;
         }
   
         .chip {
@@ -120,6 +123,7 @@
             padding: 10px 15px;
             font-weight: 600;
             text-align: center;
+            min-height: 44px;
         }
   
         .active-chip {
@@ -172,8 +176,8 @@
         <!-- Controls Row -->
         <div class="p-2 flex justify-between items-center border-b-2" :style="{borderColor: 'var(--border-color)', backgroundColor: 'var(--keypad-bg)'}">
           <div class="flex gap-2">
-            <button @click="addRow" class="nav-btn text-green-600 font-black">＋ ROW</button>
-            <button @click="removeRow" class="nav-btn text-red-600 font-black">－ ROW</button>
+            <button @click="addRow" class="nav-btn text-green-600 font-black">＋</button>
+            <button @click="removeRow" class="nav-btn text-red-600 font-black">－</button>
           </div>
           <div class="grid grid-cols-4 gap-2">
             <button @click="move('left')" class="nav-btn">⬅️</button>
@@ -216,7 +220,7 @@
     </div>
   
     <script>
-        const { createApp, ref, computed } = Vue;
+        const { createApp, ref, computed, nextTick } = Vue;
   
         createApp({
             setup() {
@@ -225,12 +229,13 @@
                 const plotNumber = ref("42");
                 const activeRow = ref(0);
                 const activeCol = ref(0);
+                const tableBox = ref(null);
                 
                 const columns = [
                     { label: 'T#', key: 'tree_number', type: 'number' },
                     { label: 'PF', key: 'plot_factor', type: 'number' },
-                    { label: 'SP', key: 'species', type: 'select', options: ['DF', 'WH', 'RC', 'SS', 'RA', 'BM', 'NF', 'SF', 'WP'] },
-                    { label: 'S', key: 'status', type: 'select', options: ['L', 'D', 'W', 'S'] },
+                    { label: 'SP', key: 'species', type: 'select', options: ['DF', 'WH', 'RC', 'SS', 'RA', 'BM', 'NF', 'SF', 'WP', 'PP', 'SP', 'JP', 'GC', 'TO', 'CL', 'OC', 'OH', 'NA'] },
+                    { label: 'S', key: 'status', type: 'select', options: ['L', 'D', 'C', 'G'] },
                     { label: 'N', key: 'tally', type: 'number' },
                     { label: 'D', key: 'diameter', type: 'number' },
                     { label: 'FP', key: 'form_point', type: 'number' },
@@ -260,9 +265,34 @@
   
                 const activeColConfig = computed(() => columns[activeCol.value]);
   
+                const scrollActiveIntoView = async () => {
+                    await nextTick();
+                    const wrapper = tableBox.value;
+                    const activeCell = wrapper?.querySelector('.active-cell');
+                    if (!wrapper || !activeCell) return;
+  
+                    const table = activeCell.closest('table');
+                    const header = table?.querySelector('thead');
+                    const headerHeight = header?.offsetHeight || 0;
+  
+                    const wrapperRect = wrapper.getBoundingClientRect();
+                    const cellRect = activeCell.getBoundingClientRect();
+                    const cellTop = cellRect.top - wrapperRect.top + wrapper.scrollTop;
+                    const cellBottom = cellTop + cellRect.height;
+                    const visibleTop = wrapper.scrollTop + headerHeight;
+                    const visibleBottom = wrapper.scrollTop + wrapper.clientHeight;
+  
+                    if (cellTop < visibleTop) {
+                        wrapper.scrollTop = Math.max(cellTop - headerHeight, 0);
+                    } else if (cellBottom > visibleBottom) {
+                        wrapper.scrollTop = Math.min(cellBottom - wrapper.clientHeight, wrapper.scrollHeight - wrapper.clientHeight);
+                    }
+                };
+  
                 const setActive = (r, c) => {
                     activeRow.value = r;
                     activeCol.value = c;
+                    scrollActiveIntoView();
                 };
   
                 const move = (dir) => {
@@ -277,6 +307,7 @@
                             activeCol.value = 0;
                         }
                     }
+                    scrollActiveIntoView();
                 };
   
                 const pressKey = (key) => {
@@ -302,10 +333,15 @@
                     rows.value.push(createNewRow(nextNum));
                     activeRow.value = rows.value.length - 1;
                     activeCol.value = 0;
+                    scrollActiveIntoView();
                 };
   
                 const removeRow = () => {
                     if (rows.value.length > 1) {
+                        const rowIndex = activeRow.value + 1;
+                        const message = `Delete row ${rowIndex}? This cannot be undone.`;
+                        if (!confirm(message)) return;
+  
                         rows.value.pop();
                         if (activeRow.value >= rows.value.length) {
                             activeRow.value = rows.value.length - 1;
@@ -315,7 +351,7 @@
   
                 return {
                     isDarkMode, unitName, plotNumber, columns, rows,
-                    activeRow, activeCol, activeColConfig,
+                    activeRow, activeCol, activeColConfig, tableBox,
                     setActive, move, pressKey, setVal, addRow, removeRow
                 };
             }
