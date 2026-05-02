@@ -146,10 +146,16 @@
               <span>PLOT: {{ plotNumber }}</span>
             </div>
           </div>
-          <button @click="isDarkMode = !isDarkMode" class="p-3 border-2 rounded-xl text-xl" :style="{borderColor: 'var(--border-color)', backgroundColor: 'var(--btn-bg)'}">
-            <span v-if="isDarkMode">☀️</span>
-            <span v-else>🌙</span>
-          </button>
+          <div class="flex gap-2">
+            <button @click="toggleFullscreen" class="p-1 border-2 rounded text-sm min-w-7" :style="{borderColor: 'var(--border-color)', backgroundColor: 'var(--btn-bg)'}">
+              <span v-if="isFullscreen">&#x21F2</span>
+              <span v-else>&#x26F6;</span>
+            </button>
+            <button @click="isDarkMode = !isDarkMode" class="p-1 border-2 rounded text-sm min-w-7" :style="{borderColor: 'var(--border-color)', backgroundColor: 'var(--btn-bg)'}">
+              <span v-if="isDarkMode">☀️</span>
+              <span v-else>🌙</span>
+            </button>
+          </div>
         </header>
 
         <!-- Table Body -->
@@ -180,10 +186,10 @@
             <button @click="removeRow" class="nav-btn text-red-600 font-black">－</button>
           </div>
           <div class="grid grid-cols-4 gap-2">
-            <button @click="move('left')" class="nav-btn">⬅️</button>
-            <button @click="move('up')" class="nav-btn">⬆️</button>
-            <button @click="move('down')" class="nav-btn">⬇️</button>
-            <button @click="move('right')" class="nav-btn">➡️</button>
+            <button @click="move('left')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">⬅️</button>
+            <button @click="move('right')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">➡️</button>
+            <button @click="move('up')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">⬆️</button>
+            <button @click="move('down')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">⬇️</button>
           </div>
         </div>
 
@@ -224,19 +230,20 @@
   
         createApp({
             setup() {
-                const isDarkMode = ref(false);
                 const unitName = ref("TIMBER-A1");
                 const plotNumber = ref("42");
+                const isDarkMode = ref(false);
+                const isFullscreen = ref(false);
                 const activeRow = ref(0);
                 const activeCol = ref(0);
                 const tableBox = ref(null);
                 
                 const columns = [
-                    { label: 'T#', key: 'tree_number', type: 'number' },
+                    { label: 'T', key: 'tree_number', type: 'number' },
                     { label: 'PF', key: 'plot_factor', type: 'number' },
                     { label: 'SP', key: 'species', type: 'select', options: ['DF', 'WH', 'RC', 'SS', 'RA', 'BM', 'NF', 'SF', 'WP', 'PP', 'SP', 'JP', 'GC', 'TO', 'CL', 'OC', 'OH', 'NA'] },
                     { label: 'S', key: 'status', type: 'select', options: ['L', 'D', 'C', 'G'] },
-                    { label: 'N', key: 'tally', type: 'number' },
+                    { label: '#', key: 'tally', type: 'number' },
                     { label: 'D', key: 'diameter', type: 'number' },
                     { label: 'FP', key: 'form_point', type: 'number' },
                     { label: 'FF', key: 'form_factor', type: 'number' },
@@ -348,11 +355,25 @@
                         }
                     }
                 };
+
+                const updateFullscreenState = () => {
+                    isFullscreen.value = !!document.fullscreenElement;
+                };
+
+                const toggleFullscreen = async () => {
+                    if (document.fullscreenElement) {
+                        await document.exitFullscreen();
+                    } else {
+                        await document.documentElement.requestFullscreen();
+                    }
+                };
+
+                document.addEventListener('fullscreenchange', updateFullscreenState);
   
                 return {
-                    isDarkMode, unitName, plotNumber, columns, rows,
+                    isDarkMode, isFullscreen, unitName, plotNumber, columns, rows,
                     activeRow, activeCol, activeColConfig, tableBox,
-                    setActive, move, pressKey, setVal, addRow, removeRow
+                    setActive, move, pressKey, setVal, addRow, removeRow, toggleFullscreen
                 };
             }
         }).mount('#app');
