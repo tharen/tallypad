@@ -1,0 +1,20 @@
+{
+  "name": "tallypad",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.2",
+    "@vitejs/plugin-vue": "^4.3.0",
+    "@vue/compiler-sfc": "^3.4.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0"
+  }
+}

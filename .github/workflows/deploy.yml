@@ -1,0 +1,45 @@
+name: Deploy Vue to GitHub Pages
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    env:
+      APP_PREFIX: ${{ github.ref_name == 'main' && 'app' || 'dev' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Build tallypad
+        working-directory: tallypad
+        run: |
+          npm ci --legacy-peer-deps
+          npm run build
+          mkdir -p ../deploy/tallypad/v1/${{ env.APP_PREFIX }}
+          cp -r dist/* ../deploy/tallypad/v1/${{ env.APP_PREFIX }}/
+        
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4.0.0
+        with:
+          path: './deploy' # Ensure this matches your Vite build output directory
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
