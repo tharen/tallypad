@@ -9,7 +9,7 @@
         </div>
       </div>
       <div class="relative">
-        <button @click.stop="toggleMenu" class="p-1 border-2 rounded text-lg min-w-7" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--btn-bg)' }">
+        <button @click.stop="toggleMenu" class="p-1 rounded text-md font-bold min-w-7" :style="{ color: 'var(--text-primary)' }">
           ⋮
         </button>
 
