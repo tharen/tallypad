@@ -32,8 +32,8 @@ jobs:
         run: |
           npm ci --legacy-peer-deps
           npm run build
-          mkdir -p ../deploy/tallypad/v1/${{ env.APP_PREFIX }}
-          cp -r dist/* ../deploy/tallypad/v1/${{ env.APP_PREFIX }}/
+          mkdir -p ../deploy/${{ env.APP_PREFIX }}
+          cp -r dist/* ../deploy/${{ env.APP_PREFIX }}/
         
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4.0.0
