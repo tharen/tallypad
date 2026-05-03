@@ -10,7 +10,8 @@ export default defineConfig(({ }) => {
   // const app = command === 'build' ? 'app' : 'dev';
   // If this is GitHub pages CI build then the root needs to be adjusted
   const app = process.env.GITHUB_REF_NAME && process.env.GITHUB_REF_NAME === 'main' ? 'app' : 'dev';
-  const root = process.env.GITHUB_ACTIONS ? `/tallypad/tallypad/v${major_ver}/${app}/` : `/${app}/`;
+  // const root = process.env.GITHUB_ACTIONS ? `/tallypad/tallypad/v${major_ver}/${app}/` : `/${app}/`;
+  const root = `/`;
   
   return {
     base: root,
