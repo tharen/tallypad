@@ -1,250 +1,79 @@
 <template>
   <div id="app-inner" :class="{ 'dark-mode': isDarkMode }">
-    <header class="p-2 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
-      <div>
-        <h1 class="text-xs uppercase opacity-70 font-bold">Forest Inventory</h1>
-        <div class="flex gap-4 font-mono text-lg font-black">
-          <span>UNIT: {{ unitName }}</span>
-          <span>PLOT: {{ plotNumber }}</span>
+    <template v-if="store.currentView.value === 'plots'">
+      <!-- Plots List View -->
+      <header class="p-4 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
+        <div>
+          <h1 class="text-lg font-bold">Unit Plots</h1>
+          <p class="text-sm opacity-70">Select a plot to begin inventory</p>
+        </div>
+        <div class="relative">
+          <button @click.stop="toggleMenu" class="p-2 rounded text-xl font-bold" :style="{ color: 'var(--text-primary)' }">
+            ⁝
+          </button>
+          <div v-if="isMenuOpen" class="kebab-menu" @click.stop>
+            <button @click="isDarkMode = !isDarkMode" class="menu-item">
+              <span class="menu-icon">{{ isDarkMode ? '☀️' : '🌙' }}</span>
+              <span>{{ isDarkMode ? 'Light mode' : 'Dark mode' }}</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div class="flex-1 overflow-y-auto p-4">
+        <div v-if="unitPlots.length === 0" class="flex items-center justify-center h-full text-center">
+          <div>
+            <p class="text-xl font-bold mb-2">No plots found</p>
+            <p class="opacity-70 mb-4">Add a new unit plot to get started</p>
+            <button @click="addNewPlot" class="px-6 py-3 rounded bg-blue-600 text-white font-bold hover:bg-blue-700">
+              ＋ Add Plot
+            </button>
+          </div>
+        </div>
+
+        <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+          <div
+            v-for="plot in unitPlots"
+            :key="`${plot.unitName}-${plot.plotNumber}`"
+            class="plot-card"
+            :style="{ backgroundColor: 'var(--cell-bg)', borderColor: 'var(--border-color)' }">
+            <div class="flex-1">
+              <div class="text-sm opacity-70 uppercase tracking-wide">Unit</div>
+              <h2 class="text-2xl font-bold mb-4">{{ plot.unitName }}</h2>
+              <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
+              <p class="text-xl font-mono font-bold">{{ plot.plotNumber }}</p>
+            </div>
+            <button @click="selectPlot(plot)" class="plot-action-btn">
+              <span class="text-2xl">→</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex justify-center pt-4">
+          <button @click="addNewPlot" class="nav-btn text-green-600 font-black text-2xl">
+            ＋ Add Plot
+          </button>
         </div>
       </div>
-      <div class="relative">
-        <button @click.stop="toggleMenu" class="p-1 rounded text-xl font-bold min-w-7" :style="{ color: 'var(--text-primary)' }">
-          ⁝
-        </button>
+    </template>
 
-        <div v-if="isMenuOpen" class="kebab-menu" @click.stop>
-          <button @click="toggleFullscreen" class="menu-item">
-            <span class="menu-icon">⛶</span>
-            <span>{{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}</span>
-          </button>
-          <button @click="isDarkMode = !isDarkMode" class="menu-item">
-            <span class="menu-icon">{{ isDarkMode ? '☀️' : '🌙' }}</span>
-            <span>{{ isDarkMode ? 'Light mode' : 'Dark mode' }}</span>
-          </button>
-        </div>
-      </div>
-    </header>
-
-    <div class="table-container" ref="tableBox">
-      <table>
-        <thead>
-          <tr>
-            <th v-for="col in columns" :key="col.key">{{ col.label }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, rIdx) in rows" :key="rIdx">
-            <td
-              v-for="(col, cIdx) in columns"
-              :key="col.key"
-              :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx }"
-              @click="setActive(rIdx, cIdx)">
-              {{ row[col.key] }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="p-2 flex justify-between items-center border-b-2" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--keypad-bg)' }">
-      <div class="flex gap-2">
-        <button @click="addRow" class="nav-btn text-green-600 font-black">＋</button>
-        <button @click="removeRow" class="nav-btn text-red-600 font-black">－</button>
-      </div>
-      <div class="grid grid-cols-4 gap-2">
-        <button @click="move('left')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">⬅️</button>
-        <button @click="move('right')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">➡️</button>
-        <button @click="move('up')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">⬆️</button>
-        <button @click="move('down')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">⬇️</button>
-      </div>
-    </div>
-
-    <div class="p-2 h-[240px]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
-      <div v-if="activeColConfig.type === 'number'" class="grid grid-cols-4 gap-2 h-full">
-        <button v-for="n in [7, 8, 9]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
-        <button @click="pressKey('back')" class="keypad-btn !bg-orange-500 text-white">⌫</button>
-
-        <button v-for="n in [4, 5, 6]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
-        <button @click="move('right')" class="keypad-btn row-span-2 !bg-blue-600 text-white shadow-none">ENT</button>
-
-        <button v-for="n in [1, 2, 3]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
-
-        <button @click="pressKey(0)" class="keypad-btn col-span-2">0</button>
-        <button @click="pressKey('.')" class="keypad-btn">.</button>
-      </div>
-
-      <div v-else-if="activeColConfig.type === 'select'" class="grid grid-cols-3 gap-3 overflow-y-auto h-full p-1">
-        <button
-          v-for="opt in activeColConfig.options"
-          :key="opt"
-          @click="setVal(opt)"
-          class="chip"
-          :class="{ 'active-chip': rows[activeRow][activeColConfig.key] === opt }">
-          {{ opt }}
-        </button>
-      </div>
-    </div>
+    <template v-else-if="store.currentView.value === 'trees'">
+      <!-- Trees View -->
+      <Trees />
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { useAppStore } from './stores/appStore';
+import { db, UnitPlot } from './db';
+import Trees from './views/Trees.vue';
 
-type Column = {
-  label: string;
-  key: RowKey;
-  type: 'number' | 'select';
-  options?: string[];
-};
-
-type RowKey =
-  | 'tree_number'
-  | 'plot_factor'
-  | 'species'
-  | 'status'
-  | 'tally'
-  | 'diameter'
-  | 'form_point'
-  | 'form_factor'
-  | 'top_diameter'
-  | 'bole_height'
-  | 'top_height'
-  | 'plot_number'
-  | 'unit_name';
-
-type Row = Record<RowKey, string>;
-
-const unitName = ref('TIMBER-A1');
-const plotNumber = ref('42');
+const store = useAppStore();
 const isDarkMode = ref(false);
-const isFullscreen = ref(false);
-const activeRow = ref(0);
-const activeCol = ref(0);
 const isMenuOpen = ref(false);
-const tableBox = ref<HTMLDivElement | null>(null);
-
-const columns: Column[] = [
-  { label: 'Tr', key: 'tree_number', type: 'number' },
-  { label: 'PF', key: 'plot_factor', type: 'number' },
-  { label: 'SP', key: 'species', type: 'select', options: ['DF', 'WH', 'RC', 'SS', 'RA', 'BM', 'NF', 'SF', 'WP', 'PP', 'SP', 'JP', 'GC', 'TO', 'CL', 'OC', 'OH', 'NA'] },
-  { label: 'S', key: 'status', type: 'select', options: ['L', 'D', 'C', 'G'] },
-  { label: 'N', key: 'tally', type: 'number' },
-  { label: 'D', key: 'diameter', type: 'number' },
-  { label: 'FP', key: 'form_point', type: 'number' },
-  { label: 'FF', key: 'form_factor', type: 'number' },
-  { label: 'TD', key: 'top_diameter', type: 'number' },
-  { label: 'BH', key: 'bole_height', type: 'number' },
-  { label: 'TH', key: 'top_height', type: 'number' },
-];
-
-const createNewRow = (num?: number): Row => ({
-  tree_number: num ? String(num) : '',
-  plot_factor: '1',
-  species: '',
-  status: 'L',
-  tally: '1',
-  diameter: '',
-  form_point: '',
-  form_factor: '',
-  top_diameter: '',
-  bole_height: '',
-  top_height: '',
-  plot_number: plotNumber.value,
-  unit_name: unitName.value,
-});
-
-const rows = ref<Row[]>([createNewRow(1), createNewRow(2), createNewRow(3)]);
-
-const activeColConfig = computed(() => columns[activeCol.value]);
-
-const scrollActiveIntoView = async () => {
-  await Promise.resolve();
-  const wrapper = tableBox.value;
-  const activeCell = wrapper?.querySelector('.active-cell');
-  if (!wrapper || !activeCell) return;
-
-  const table = activeCell.closest('table');
-  const header = table?.querySelector('thead');
-  const headerHeight = header?.offsetHeight || 0;
-
-  const wrapperRect = wrapper.getBoundingClientRect();
-  const cellRect = activeCell.getBoundingClientRect();
-  const cellTop = cellRect.top - wrapperRect.top + wrapper.scrollTop;
-  const cellBottom = cellTop + cellRect.height;
-  const visibleTop = wrapper.scrollTop + headerHeight;
-  const visibleBottom = wrapper.scrollTop + wrapper.clientHeight;
-
-  if (cellTop < visibleTop) {
-    wrapper.scrollTop = Math.max(cellTop - headerHeight, 0);
-  } else if (cellBottom > visibleBottom) {
-    wrapper.scrollTop = Math.min(cellBottom - wrapper.clientHeight, wrapper.scrollHeight - wrapper.clientHeight);
-  }
-};
-
-const setActive = (r: number, c: number) => {
-  activeRow.value = r;
-  activeCol.value = c;
-  scrollActiveIntoView();
-};
-
-const move = (dir: 'up' | 'down' | 'left' | 'right') => {
-  if (dir === 'up' && activeRow.value > 0) activeRow.value--;
-  if (dir === 'down' && activeRow.value < rows.value.length - 1) activeRow.value++;
-  if (dir === 'left' && activeCol.value > 0) activeCol.value--;
-  if (dir === 'right') {
-    if (activeCol.value < columns.length - 1) {
-      activeCol.value++;
-    } else if (activeRow.value < rows.value.length - 1) {
-      activeRow.value++;
-      activeCol.value = 0;
-    }
-  }
-  scrollActiveIntoView();
-};
-
-const pressKey = (key: number | 'back' | '.') => {
-  const row = rows.value[activeRow.value];
-  const colKey = activeColConfig.value.key;
-  const current = String(row[colKey] || '');
-
-  if (key === 'back') {
-    row[colKey] = current.slice(0, -1);
-  } else {
-    if (key === '.' && current.includes('.')) return;
-    row[colKey] = current + String(key);
-  }
-};
-
-const setVal = (val: string) => {
-  rows.value[activeRow.value][activeColConfig.value.key] = val;
-  move('right');
-};
-
-const addRow = () => {
-  const nextNum = rows.value.length + 1;
-  rows.value.push(createNewRow(nextNum));
-  activeRow.value = rows.value.length - 1;
-  activeCol.value = 0;
-  scrollActiveIntoView();
-};
-
-const removeRow = () => {
-  if (rows.value.length > 1) {
-    const rowIndex = activeRow.value + 1;
-    const message = `Delete row ${rowIndex}? This cannot be undone.`;
-    if (!confirm(message)) return;
-
-    rows.value.pop();
-    if (activeRow.value >= rows.value.length) {
-      activeRow.value = rows.value.length - 1;
-    }
-  }
-};
-
-const updateFullscreenState = () => {
-  isFullscreen.value = !!document.fullscreenElement;
-};
+const unitPlots = ref<UnitPlot[]>([]);
 
 const toggleMenu = () => {
   isMenuOpen.value = !isMenuOpen.value;
@@ -254,27 +83,65 @@ const closeMenu = () => {
   isMenuOpen.value = false;
 };
 
-const toggleFullscreen = async () => {
-  if (document.fullscreenElement) {
-    await document.exitFullscreen();
-  } else {
-    await document.documentElement.requestFullscreen();
-  }
+const selectPlot = async (plot: UnitPlot) => {
+  closeMenu();
+  // Fetch tree records for this plot from the database
+  const records = await db.treeRecords
+    .where('[unitName+plotNumber]')
+    .equals([plot.unitName, plot.plotNumber])
+    .toArray();
+
+  store.goToTrees(plot, records);
+};
+
+const addNewPlot = () => {
+  // Simple dialog to add a new plot (can be enhanced with a modal)
+  const unitName = prompt('Enter unit name (e.g., TIMBER-A1):');
+  if (!unitName?.trim()) return;
+
+  const plotNumber = prompt('Enter plot number (e.g., 42):');
+  if (!plotNumber?.trim()) return;
+
+  const newPlot: UnitPlot = {
+    unitName: unitName.trim(),
+    plotNumber: plotNumber.trim(),
+  };
+
+  db.unitPlots.add(newPlot).then(() => {
+    loadPlots();
+  });
+};
+
+const loadPlots = async () => {
+  unitPlots.value = await db.unitPlots.toArray();
 };
 
 onMounted(() => {
-  updateFullscreenState();
-  document.addEventListener('fullscreenchange', updateFullscreenState);
+  loadPlots();
+  // Add some sample data if the database is empty
+  db.unitPlots.count().then((count) => {
+    if (count === 0) {
+      const samplePlots: UnitPlot[] = [
+        { unitName: 'TIMBER-A1', plotNumber: '42' },
+        { unitName: 'TIMBER-A1', plotNumber: '43' },
+        { unitName: 'TIMBER-B2', plotNumber: '15' },
+        { unitName: 'TIMBER-B2', plotNumber: '16' },
+      ];
+      db.unitPlots.bulkAdd(samplePlots).then(() => {
+        loadPlots();
+      });
+    }
+  });
+
   document.addEventListener('click', closeMenu);
 });
 
 onBeforeUnmount(() => {
-  document.removeEventListener('fullscreenchange', updateFullscreenState);
   document.removeEventListener('click', closeMenu);
 });
 </script>
 
-<style>
+<style scoped>
 :root {
   --bg-primary: #ffffff;
   --text-primary: #000000;
@@ -309,106 +176,80 @@ onBeforeUnmount(() => {
   touch-action: manipulation;
 }
 
-.table-container {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;
-  border-bottom: 2px solid var(--border-color);
+.plot-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 2px solid;
+  border-radius: 12px;
+  padding: 24px;
+  gap: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+.plot-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  border-color: var(--accent);
 }
 
-th {
-  position: sticky;
-  top: 0;
-  background: var(--btn-bg);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  padding: 8px 2px;
-  font-weight: 800;
-  z-index: 10;
-}
-
-td {
-  border: 1px solid var(--border-color);
-  padding: 0;
-  text-align: center;
-  height: 44px;
-  background: var(--cell-bg);
-  color: var(--text-primary);
-}
-
-.active-cell {
-  outline: 3px solid var(--accent);
-  outline-offset: -3px;
-  background: rgba(59, 130, 246, 0.2) !important;
-}
-
-.keypad-btn {
-  background: var(--btn-bg);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+.plot-action-btn {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: var(--accent);
+  color: white;
+  border: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
-  font-size: 1.25rem;
-  height: 50px;
-  box-shadow: 0 2px 0 var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
 }
 
-.keypad-btn:active {
-  transform: translateY(2px);
-  box-shadow: none;
-  background: var(--accent);
-  color: white;
+.plot-action-btn:hover {
+  background-color: #1d4ed8;
+  transform: scale(1.1);
+}
+
+.plot-action-btn:active {
+  transform: scale(0.95);
 }
 
 .nav-btn {
   background: var(--btn-bg);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
-  padding: 0px;
-  min-width: 44px;
-  min-height: 44px;
+  padding: 12px 24px;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.75rem;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.chip {
-  background: var(--btn-bg);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 20px;
-  padding: 10px 15px;
-  font-weight: 600;
-  text-align: center;
-  min-height: 44px;
-}
-
-.active-chip {
-  background: var(--accent) !important;
-  color: white !important;
+.nav-btn:hover {
+  background-color: var(--accent);
+  color: white;
 }
 
 .kebab-menu {
   position: absolute;
   right: -4px;
-  top: calc(100% + 0px);
+  top: calc(100% + 8px);
   width: 180px;
   border: 1px solid var(--border-color);
-  border-radius: 0px;
+  border-radius: 8px;
   background: var(--btn-bg);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
   z-index: 20;
+  overflow: hidden;
 }
 
 .menu-item {
@@ -423,6 +264,7 @@ td {
   font-size: 0.95rem;
   text-align: left;
   cursor: pointer;
+  transition: background-color 0.2s ease;
 }
 
 .menu-item:hover {
