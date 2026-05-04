@@ -1,22 +1,22 @@
 import { ref, computed } from 'vue';
-import { TreeRecord, UnitPlot } from '../db';
+import { Tree, Plot } from '../db';
 
 export interface AppState {
   currentView: 'plots' | 'trees';
-  selectedPlot: UnitPlot | null;
-  treeRecords: TreeRecord[];
+  selectedPlot: Plot | null;
+  trees: Tree[];
 }
 
 const state = ref<AppState>({
   currentView: 'plots',
   selectedPlot: null,
-  treeRecords: [],
+  trees: [],
 });
 
 export const useAppStore = () => {
-  const goToTrees = (plot: UnitPlot, records: TreeRecord[]) => {
+  const goToTrees = (plot: Plot, records: Tree[]) => {
     state.value.selectedPlot = plot;
-    state.value.treeRecords = records;
+    state.value.trees = records;
     state.value.currentView = 'trees';
   };
 
@@ -26,13 +26,13 @@ export const useAppStore = () => {
 
   const currentView = computed(() => state.value.currentView);
   const selectedPlot = computed(() => state.value.selectedPlot);
-  const treeRecords = computed(() => state.value.treeRecords);
+  const trees = computed(() => state.value.trees);
 
   return {
     goToTrees,
     goToPlots,
     currentView,
     selectedPlot,
-    treeRecords,
+    trees,
   };
 };

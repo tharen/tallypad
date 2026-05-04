@@ -1,11 +1,13 @@
 <template>
   <div id="app-inner" :class="{ 'dark-mode': isDarkMode }">
     <header class="p-2 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
+      <div @click="backToPlots" class="m-0 p-0">&#9664</div>
       <div>
         <h1 class="text-xs uppercase opacity-70 font-bold">Forest Inventory</h1>
         <div class="flex gap-4 font-mono text-lg font-black">
-          <span>UNIT: {{ store.selectedPlot.value?.unitName }}</span>
-          <span>PLOT: {{ store.selectedPlot.value?.plotNumber }}</span>
+          <span hidden>{{ store.selectedPlot?.value.globalid }}</span>
+          <span>UNIT: {{ store.selectedPlot?.value.unitName }}</span>
+          <span>PLOT: {{ store.selectedPlot?.value.plotNumber }}</span>
         </div>
       </div>
       <div class="relative">
@@ -34,18 +36,22 @@
       <table>
         <thead>
           <tr>
-            <th v-for="col in columns" :key="col.key">{{ col.label }}</th>
+            <!-- <th v-for="col in columns" :key="col.key">{{ col.label }}</th> -->
+            <template v-for="col in columns" :key="col.key">
+              <th v-if="col.visible">{{ col.label }}</th>
+            </template>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(row, rIdx) in rows" :key="rIdx">
-            <td
-              v-for="(col, cIdx) in columns"
-              :key="col.key"
-              :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx }"
-              @click="setActive(rIdx, cIdx)">
-              {{ row[col.key] }}
-            </td>
+            <template v-for="(col, cIdx) in columns" :key="col.key">
+              <td v-if="col.visible"
+                :key="col.key"
+                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx }"
+                @click="setActive(rIdx, cIdx)">
+                {{ row[col.key] }}
+              </td>
+            </template>
           </tr>
         </tbody>
       </table>
@@ -53,24 +59,24 @@
 
     <div class="p-2 flex justify-between items-center border-b-2" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--keypad-bg)' }">
       <div class="flex gap-2">
-        <button @click="addRow" class="nav-btn text-green-600 font-black">＋</button>
-        <button @click="removeRow" class="nav-btn text-red-600 font-black">－</button>
+        <button @click="addRow" class="nav-btn !text-green-600">＋</button>
+        <button @click="removeRow" class="nav-btn !text-red-600">－</button>
       </div>
       <div class="grid grid-cols-4 gap-2">
-        <button @click="move('left')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">⬅️</button>
-        <button @click="move('right')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">➡️</button>
-        <button @click="move('up')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">⬆️</button>
-        <button @click="move('down')" class="nav-btn border-0 bg-gray-200 hover:bg-gray-300">⬇️</button>
+        <button @click="move('left')" class="nav-btn !border-0 !bg-gray-200 !hover:bg-gray-300">⬅️</button>
+        <button @click="move('right')" class="nav-btn !border-0 !bg-gray-200 !hover:bg-gray-300">➡️</button>
+        <button @click="move('up')" class="nav-btn !border-0 !bg-gray-200 !hover:bg-gray-300">⬆️</button>
+        <button @click="move('down')" class="nav-btn !border-0 !bg-gray-200 !hover:bg-gray-300">⬇️</button>
       </div>
     </div>
 
     <div class="p-2 h-[240px]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
       <div v-if="activeColConfig.type === 'number'" class="grid grid-cols-4 gap-2 h-full">
         <button v-for="n in [7, 8, 9]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
-        <button @click="pressKey('back')" class="keypad-btn !bg-orange-500 text-white">⌫</button>
+        <button @click="pressKey('back')" class="keypad-btn !bg-orange-500 !text-white">⌫</button>
 
         <button v-for="n in [4, 5, 6]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
-        <button @click="move('right')" class="keypad-btn row-span-2 !bg-blue-600 text-white shadow-none">ENT</button>
+        <button @click="move('right')" class="keypad-btn row-span-2 !bg-blue-600 !text-white">ENT</button>
 
         <button v-for="n in [1, 2, 3]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
 
@@ -95,16 +101,19 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useAppStore } from '../stores/appStore';
-import { db, TreeRecord } from '../db';
+import { db, Tree } from '../db';
 
 type Column = {
   label: string;
   key: RowKey;
-  type: 'number' | 'select';
+  type: 'string' | 'number' | 'select';
+  visible: boolean;
   options?: string[];
 };
 
 type RowKey =
+  | 'globalid'
+  | 'plot_globalid'
   | 'tree_number'
   | 'plot_factor'
   | 'species'
@@ -115,9 +124,7 @@ type RowKey =
   | 'form_factor'
   | 'top_diameter'
   | 'bole_height'
-  | 'top_height'
-  | 'plot_number'
-  | 'unit_name';
+  | 'total_height';
 
 type Row = Record<RowKey, string>;
 
@@ -129,8 +136,10 @@ const activeCol = ref(0);
 const isMenuOpen = ref(false);
 const tableBox = ref<HTMLDivElement | null>(null);
 
-// Convert Row to TreeRecord for database storage
-const rowToTreeRecord = (row: Row): TreeRecord => ({
+// Convert Row to Tree for database storage
+const rowToTree = (row: Row): Tree => ({
+  globalid: row.globalid,
+  plotGlobalid: row.plot_globalid,
   treeNumber: row.tree_number,
   plotFactor: row.plot_factor,
   species: row.species,
@@ -141,13 +150,13 @@ const rowToTreeRecord = (row: Row): TreeRecord => ({
   formFactor: row.form_factor,
   topDiameter: row.top_diameter,
   boleHeight: row.bole_height,
-  topHeight: row.top_height,
-  plotNumber: row.plot_number,
-  unitName: row.unit_name,
+  totalHeight: row.total_height,
 });
 
-// Convert TreeRecord to Row for display
-const treeRecordToRow = (record: TreeRecord): Row => ({
+// Convert Tree to Row for display
+const treeRecordToRow = (record: Tree): Row => ({
+  globalid: record.globalid,
+  plot_globalid: record.plotGlobalid,
   tree_number: record.treeNumber,
   plot_factor: record.plotFactor,
   species: record.species,
@@ -158,27 +167,32 @@ const treeRecordToRow = (record: TreeRecord): Row => ({
   form_factor: record.formFactor,
   top_diameter: record.topDiameter,
   bole_height: record.boleHeight,
-  top_height: record.topHeight,
-  plot_number: record.plotNumber,
-  unit_name: record.unitName,
+  total_height: record.totalHeight,
 });
 
 const columns: Column[] = [
-  { label: 'Tr', key: 'tree_number', type: 'number' },
-  { label: 'PF', key: 'plot_factor', type: 'number' },
-  { label: 'SP', key: 'species', type: 'select', options: ['DF', 'WH', 'RC', 'SS', 'RA', 'BM', 'NF', 'SF', 'WP', 'PP', 'SP', 'JP', 'GC', 'TO', 'CL', 'OC', 'OH', 'NA'] },
-  { label: 'S', key: 'status', type: 'select', options: ['L', 'D', 'C', 'G'] },
-  { label: 'N', key: 'tally', type: 'number' },
-  { label: 'D', key: 'diameter', type: 'number' },
-  { label: 'FP', key: 'form_point', type: 'number' },
-  { label: 'FF', key: 'form_factor', type: 'number' },
-  { label: 'TD', key: 'top_diameter', type: 'number' },
-  { label: 'BH', key: 'bole_height', type: 'number' },
-  { label: 'TH', key: 'top_height', type: 'number' },
+  { label: 'Global ID', key: 'globalid', type: 'string', visible: false },
+  { label: 'Plot ID', key: 'plot_globalid', type: 'string', visible: false },
+  { label: 'Tr', key: 'tree_number', type: 'number', visible: true },
+  { label: 'PF', key: 'plot_factor', type: 'number', visible: true },
+  { label: 'SP', key: 'species', type: 'select', options: ['DF', 'WH', 'RC', 'SS', 'RA', 'BM', 'NF', 'SF', 'WP', 'PP', 'SP', 'JP', 'GC', 'TO', 'CL', 'OC', 'OH', 'NA'], visible: true },
+  { label: 'S', key: 'status', type: 'select', options: ['L', 'D', 'C', 'G'], visible: true },
+  { label: 'N', key: 'tally', type: 'number', visible: true },
+  { label: 'D', key: 'diameter', type: 'number', visible: true },
+  { label: 'FP', key: 'form_point', type: 'number', visible: false },
+  { label: 'FF', key: 'form_factor', type: 'number', visible: true },
+  { label: 'TD', key: 'top_diameter', type: 'number', visible: true },
+  { label: 'BH', key: 'bole_height', type: 'number', visible: true },
+  { label: 'TH', key: 'total_height', type: 'number', visible: true },
 ];
 
-const createNewRow = (num?: number): Row => ({
-  tree_number: num ? String(num) : '',
+const createNewRow = (): Row => ({
+  globalid: crypto.randomUUID(),
+  plot_globalid: store.selectedPlot.value?.globalid || '', // FIXME: This should never be empty, but we need to handle the case where selectedPlot is not set yet
+  tree_number: String(rows.value.reduce(
+          (max, row) => Math.max(max, Number(row.tree_number) || 0),
+          0,
+        ) + 1),
   plot_factor: '1',
   species: '',
   status: 'L',
@@ -188,9 +202,7 @@ const createNewRow = (num?: number): Row => ({
   form_factor: '',
   top_diameter: '',
   bole_height: '',
-  top_height: '',
-  plot_number: store.selectedPlot.value?.plotNumber || '',
-  unit_name: store.selectedPlot.value?.unitName || '',
+  total_height: '',
 });
 
 const rows = ref<Row[]>([]);
@@ -199,9 +211,9 @@ const rows = ref<Row[]>([]);
 const loadRows = async () => {
   if (!store.selectedPlot.value) return;
 
-  const records = await db.treeRecords
-    .where('[unitName+plotNumber]')
-    .equals([store.selectedPlot.value.unitName, store.selectedPlot.value.plotNumber])
+  const records = await db.trees
+    .where('plotGlobalid')
+    .equals(store.selectedPlot.value.globalid)
     .sortBy('treeNumber');
 
   console.log('Loaded records:', records);
@@ -209,28 +221,28 @@ const loadRows = async () => {
 
   // If no records exist, add some default rows
   if (rows.value.length === 0) {
-    rows.value = [createNewRow(1), createNewRow(2), createNewRow(3)];
+    rows.value = [createNewRow()];
   }
 };
 
 // Save a row to database
 const saveRow = async (row: Row) => {
-  const record = rowToTreeRecord(row);
-  await db.treeRecords.put(record);
+  const record = rowToTree(row);
+  await db.trees.put(record);
 };
 
 // Delete a row from database
 const deleteRow = async (row: Row) => {
-  const record = rowToTreeRecord(row);
+  const record = rowToTree(row);
   // Find the record by compound key and delete it
-  const toDelete = await db.treeRecords
-    .where('[unitName+plotNumber]')
-    .equals([record.unitName, record.plotNumber])
+  const toDelete = await db.trees
+    .where('plotGlobalid')
+    .equals(record.plotGlobalid)
     .filter(r => r.treeNumber === record.treeNumber)
     .toArray();
 
-  if (toDelete.length > 0 && toDelete[0].id) {
-    await db.treeRecords.delete(toDelete[0].id);
+  if (toDelete.length > 0 && toDelete[0].globalid) {
+    await db.trees.delete(toDelete[0].globalid);
   }
 };
 
@@ -305,8 +317,8 @@ const setVal = (val: string) => {
 };
 
 const addRow = () => {
-  const nextNum = rows.value.length + 1;
-  const newRow = createNewRow(nextNum);
+  if (!store.selectedPlot.value) return;
+  const newRow = createNewRow();
   rows.value.push(newRow);
   activeRow.value = rows.value.length - 1;
   activeCol.value = 0;

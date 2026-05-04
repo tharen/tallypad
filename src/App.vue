@@ -16,12 +16,13 @@
               <span class="menu-icon">{{ isDarkMode ? '☀️' : '🌙' }}</span>
               <span>{{ isDarkMode ? 'Light mode' : 'Dark mode' }}</span>
             </button>
+            <span class="menu-item">DB Version: {{ dbVersion }}</span>
           </div>
         </div>
       </header>
 
       <div class="flex-1 overflow-y-auto p-4">
-        <div v-if="unitPlots.length === 0" class="flex items-center justify-center h-full text-center">
+        <div v-if="plots.length === 0" class="flex items-center justify-center h-full text-center">
           <div>
             <p class="text-xl font-bold mb-2">No plots found</p>
             <p class="opacity-70 mb-4">Add a new unit plot to get started</p>
@@ -33,7 +34,7 @@
 
         <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
           <div
-            v-for="plot in unitPlots"
+            v-for="plot in plots"
             :key="`${plot.unitName}-${plot.plotNumber}`"
             class="plot-card"
             :style="{ backgroundColor: 'var(--cell-bg)', borderColor: 'var(--border-color)' }">
@@ -67,13 +68,14 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useAppStore } from './stores/appStore';
-import { db, UnitPlot } from './db';
+import { db, Plot } from './db';
 import Trees from './views/Trees.vue';
 
 const store = useAppStore();
+const dbVersion = ref(0);
 const isDarkMode = ref(false);
 const isMenuOpen = ref(false);
-const unitPlots = ref<UnitPlot[]>([]);
+const plots = ref<Plot[]>([]);
 
 const toggleMenu = () => {
   isMenuOpen.value = !isMenuOpen.value;
@@ -83,15 +85,15 @@ const closeMenu = () => {
   isMenuOpen.value = false;
 };
 
-const selectPlot = async (plot: UnitPlot) => {
+const selectPlot = async (plot: Plot) => {
   closeMenu();
   // Fetch tree records for this plot from the database
-  const records = await db.treeRecords
-    .where('[unitName+plotNumber]')
-    .equals([plot.unitName, plot.plotNumber])
+  const trees = await db.trees
+    .where('globalid')
+    .equals(plot.globalid)
     .toArray();
 
-  store.goToTrees(plot, records);
+  store.goToTrees(plot, trees);
 };
 
 const addNewPlot = () => {
@@ -102,32 +104,34 @@ const addNewPlot = () => {
   const plotNumber = prompt('Enter plot number (e.g., 42):');
   if (!plotNumber?.trim()) return;
 
-  const newPlot: UnitPlot = {
+  const newPlot: Plot = {
+    globalid: crypto.randomUUID(),
     unitName: unitName.trim(),
     plotNumber: plotNumber.trim(),
   };
 
-  db.unitPlots.add(newPlot).then(() => {
+  db.plots.add(newPlot).then(() => {
     loadPlots();
   });
 };
 
 const loadPlots = async () => {
-  unitPlots.value = await db.unitPlots.toArray();
+  plots.value = await db.plots.toArray();
 };
 
 onMounted(() => {
+  dbVersion.value = db.verno;
   loadPlots();
   // Add some sample data if the database is empty
-  db.unitPlots.count().then((count) => {
+  db.plots.count().then((count) => {
     if (count === 0) {
-      const samplePlots: UnitPlot[] = [
-        { unitName: 'TIMBER-A1', plotNumber: '42' },
-        { unitName: 'TIMBER-A1', plotNumber: '43' },
-        { unitName: 'TIMBER-B2', plotNumber: '15' },
-        { unitName: 'TIMBER-B2', plotNumber: '16' },
+      const samplePlots: Plot[] = [
+        { globalid: crypto.randomUUID(), unitName: 'TIMBER-A1', plotNumber: '42' },
+        { globalid: crypto.randomUUID(), unitName: 'TIMBER-A1', plotNumber: '43' },
+        { globalid: crypto.randomUUID(), unitName: 'TIMBER-B2', plotNumber: '15' },
+        { globalid: crypto.randomUUID(), unitName: 'TIMBER-B2', plotNumber: '16' },
       ];
-      db.unitPlots.bulkAdd(samplePlots).then(() => {
+      db.plots.bulkAdd(samplePlots).then(() => {
         loadPlots();
       });
     }
