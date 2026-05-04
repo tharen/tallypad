@@ -63,10 +63,10 @@
     <div class="p-2 h-[240px]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
       <div v-if="activeColConfig.type === 'number'" class="grid grid-cols-4 gap-2 h-full">
         <button v-for="n in [7, 8, 9]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
-        <button @click="pressKey('back')" class="keypad-btn bg-orange-500 text-white">⌫</button>
+        <button @click="pressKey('back')" class="keypad-btn !bg-orange-500 text-white">⌫</button>
 
         <button v-for="n in [4, 5, 6]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
-        <button @click="move('right')" class="keypad-btn row-span-2 bg-blue-600 text-white shadow-none">ENT</button>
+        <button @click="move('right')" class="keypad-btn row-span-2 !bg-blue-600 text-white shadow-none">ENT</button>
 
         <button v-for="n in [1, 2, 3]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
 

@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
-import pkg from './package.json';
+import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig(() => {
   // Use root base locally and /tallypad/ for GitHub Pages deploys.
@@ -8,6 +8,9 @@ export default defineConfig(() => {
 
   return {
     base,
-    plugins: [vue()],
+    plugins: [
+      vue(),
+      tailwindcss()
+    ],
   };
 });
