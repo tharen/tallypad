@@ -1,6 +1,6 @@
 <template>
   <div id="app-inner" :class="{ 'dark-mode': isDarkMode }">
-    <header class="p-3 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
+    <header class="p-2 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
       <div>
         <h1 class="text-xs uppercase opacity-70 font-bold">Forest Inventory</h1>
         <div class="flex gap-4 font-mono text-lg font-black">
@@ -9,8 +9,8 @@
         </div>
       </div>
       <div class="relative">
-        <button @click.stop="toggleMenu" class="p-1 rounded text-md font-bold min-w-7" :style="{ color: 'var(--text-primary)' }">
-          ⋮
+        <button @click.stop="toggleMenu" class="p-1 rounded text-xl font-bold min-w-7" :style="{ color: 'var(--text-primary)' }">
+          ⁝
         </button>
 
         <div v-if="isMenuOpen" class="kebab-menu" @click.stop>
@@ -401,11 +401,11 @@ td {
 
 .kebab-menu {
   position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
+  right: -4px;
+  top: calc(100% + 0px);
   width: 180px;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 0px;
   background: var(--btn-bg);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
   z-index: 20;
