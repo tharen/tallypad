@@ -1,13 +1,16 @@
 <template>
-  <div id="app-inner" :class="{ 'dark-mode': isDarkMode }">
+  <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
     <header class="p-2 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
       <div @click="backToPlots" class="m-0 p-0">&#9664</div>
       <div>
         <h1 class="text-xs uppercase opacity-70 font-bold">Forest Inventory</h1>
-        <div class="flex gap-4 font-mono text-lg font-black">
-          <span hidden>{{ store.selectedPlot?.value.globalid }}</span>
-          <span>UNIT: {{ store.selectedPlot?.value.unitName }}</span>
-          <span>PLOT: {{ store.selectedPlot?.value.plotNumber }}</span>
+        <div class="flex gap-3 font-mono text-sm font-black">
+          <span>PLOT: {{ store.selectedPlot.value?.plotid }}</span>
+          <span class="opacity-40">|</span>
+          <span>VISIT: {{ store.selectedVisit.value?.visit_number }}</span>
+          <span class="opacity-60 font-normal">
+            ({{ new Date(store.selectedVisit.value?.measurement_date || 0).toLocaleDateString() }})
+          </span>
         </div>
       </div>
       <div class="relative">
@@ -24,9 +27,9 @@
             <span class="menu-icon">⛶</span>
             <span>{{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}</span>
           </button>
-          <button @click="isDarkMode = !isDarkMode" class="menu-item">
-            <span class="menu-icon">{{ isDarkMode ? '☀️' : '🌙' }}</span>
-            <span>{{ isDarkMode ? 'Light mode' : 'Dark mode' }}</span>
+          <button @click="store.toggleDarkMode()" class="menu-item">
+            <span class="menu-icon">{{ store.isDarkMode.value ? '☀️' : '🌙' }}</span>
+            <span>{{ store.isDarkMode.value ? 'Light mode' : 'Dark mode' }}</span>
           </button>
         </div>
       </div>
@@ -47,7 +50,8 @@
             <template v-for="(col, cIdx) in columns" :key="col.key">
               <td v-if="col.visible"
                 :key="col.key"
-                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx }"
+                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx, 'prior-val': row.isPrior }"
+                :style="row.isPrior ? { opacity: 0.5, backgroundColor: 'var(--btn-bg)' } : {}"
                 @click="setActive(rIdx, cIdx)">
                 {{ row[col.key] }}
               </td>
@@ -63,10 +67,10 @@
         <button @click="removeRow" class="nav-btn !text-red-600">－</button>
       </div>
       <div class="grid grid-cols-4 gap-2">
-        <button @click="move('left')" class="nav-btn !border-0 !bg-gray-200 !hover:bg-gray-300">⬅️</button>
-        <button @click="move('right')" class="nav-btn !border-0 !bg-gray-200 !hover:bg-gray-300">➡️</button>
-        <button @click="move('up')" class="nav-btn !border-0 !bg-gray-200 !hover:bg-gray-300">⬆️</button>
-        <button @click="move('down')" class="nav-btn !border-0 !bg-gray-200 !hover:bg-gray-300">⬇️</button>
+        <button @click="move('left')" class="nav-btn !border-0" :style="{backgroundColor: 'var(--keypad-bg)'}">⬅️</button>
+        <button @click="move('right')" class="nav-btn !border-0" :style="{backgroundColor: 'var(--keypad-bg)'}">➡️</button>
+        <button @click="move('up')" class="nav-btn !border-0" :style="{backgroundColor: 'var(--keypad-bg)'}">⬆️</button>
+        <button @click="move('down')" class="nav-btn !border-0":style="{backgroundColor: 'var(--keypad-bg)'}">⬇️</button>
       </div>
     </div>
 
@@ -101,7 +105,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useAppStore } from '../stores/appStore';
-import { db, Tree } from '../db';
+import { db, ITree, ITreeMeasurement } from '../db';
 
 type Column = {
   label: string;
@@ -114,135 +118,190 @@ type Column = {
 type RowKey =
   | 'globalid'
   | 'plot_globalid'
-  | 'tree_number'
-  | 'plot_factor'
+  | 'tree_globalid'
+  | 'measurement_globalid'
+  | 'visit_number'
+  | 'tree_num'
   | 'species'
-  | 'status'
-  | 'tally'
+  | 'az'
+  | 'hd'
+  | 'condition'
   | 'diameter'
-  | 'form_point'
-  | 'form_factor'
-  | 'top_diameter'
-  | 'bole_height'
-  | 'total_height';
+  | 'height';
 
-type Row = Record<RowKey, string>;
+interface Row extends Record<RowKey, any> {
+  isPrior: boolean;
+}
 
 const store = useAppStore();
-const isDarkMode = ref(false);
 const isFullscreen = ref(false);
 const activeRow = ref(0);
-const activeCol = ref(0);
+const activeCol = ref(2); // Start at Tree Num or Species
 const isMenuOpen = ref(false);
 const tableBox = ref<HTMLDivElement | null>(null);
-
-// Convert Row to Tree for database storage
-const rowToTree = (row: Row): Tree => ({
-  globalid: row.globalid,
-  plotGlobalid: row.plot_globalid,
-  treeNumber: row.tree_number,
-  plotFactor: row.plot_factor,
-  species: row.species,
-  status: row.status,
-  tally: row.tally,
-  diameter: row.diameter,
-  formPoint: row.form_point,
-  formFactor: row.form_factor,
-  topDiameter: row.top_diameter,
-  boleHeight: row.bole_height,
-  totalHeight: row.total_height,
-});
-
-// Convert Tree to Row for display
-const treeRecordToRow = (record: Tree): Row => ({
-  globalid: record.globalid,
-  plot_globalid: record.plotGlobalid,
-  tree_number: record.treeNumber,
-  plot_factor: record.plotFactor,
-  species: record.species,
-  status: record.status,
-  tally: record.tally,
-  diameter: record.diameter,
-  form_point: record.formPoint,
-  form_factor: record.formFactor,
-  top_diameter: record.topDiameter,
-  bole_height: record.boleHeight,
-  total_height: record.totalHeight,
-});
+const lastCellValue = ref<any>(null);
+const lastCellRef = ref<{ r: number, c: number } | null>(null);
 
 const columns: Column[] = [
   { label: 'Global ID', key: 'globalid', type: 'string', visible: false },
   { label: 'Plot ID', key: 'plot_globalid', type: 'string', visible: false },
-  { label: 'Tr', key: 'tree_number', type: 'number', visible: true },
-  { label: 'PF', key: 'plot_factor', type: 'number', visible: true },
+  { label: 'V', key: 'visit_number', type: 'number', visible: true },
+  { label: 'Tr', key: 'tree_num', type: 'number', visible: true },
+  { label: 'AZ', key: 'az', type: 'number', visible: true },
+  { label: 'HD', key: 'hd', type: 'number', visible: true },
   { label: 'SP', key: 'species', type: 'select', options: ['DF', 'WH', 'RC', 'SS', 'RA', 'BM', 'NF', 'SF', 'WP', 'PP', 'SP', 'JP', 'GC', 'TO', 'CL', 'OC', 'OH', 'NA'], visible: true },
-  { label: 'S', key: 'status', type: 'select', options: ['L', 'D', 'C', 'G'], visible: true },
-  { label: 'N', key: 'tally', type: 'number', visible: true },
-  { label: 'D', key: 'diameter', type: 'number', visible: true },
-  { label: 'FP', key: 'form_point', type: 'number', visible: false },
-  { label: 'FF', key: 'form_factor', type: 'number', visible: true },
-  { label: 'TD', key: 'top_diameter', type: 'number', visible: true },
-  { label: 'BH', key: 'bole_height', type: 'number', visible: true },
-  { label: 'TH', key: 'total_height', type: 'number', visible: true },
+  { label: 'CND', key: 'condition', type: 'select', options: ['L', 'D', 'C', 'G'], visible: true },
+  { label: 'DBH', key: 'diameter', type: 'number', visible: true },
+  { label: 'HT', key: 'height', type: 'number', visible: true },
 ];
-
-const createNewRow = (): Row => ({
-  globalid: crypto.randomUUID(),
-  plot_globalid: store.selectedPlot.value?.globalid || '', // FIXME: This should never be empty, but we need to handle the case where selectedPlot is not set yet
-  tree_number: String(rows.value.reduce(
-          (max, row) => Math.max(max, Number(row.tree_number) || 0),
-          0,
-        ) + 1),
-  plot_factor: '1',
-  species: '',
-  status: 'L',
-  tally: '1',
-  diameter: '',
-  form_point: '',
-  form_factor: '',
-  top_diameter: '',
-  bole_height: '',
-  total_height: '',
-});
 
 const rows = ref<Row[]>([]);
 
+const treeAndMeasToRow = (tree: ITree, meas: ITreeMeasurement | undefined, visitNum: number, isPrior: boolean): Row => ({
+  globalid: tree.globalid,
+  plot_globalid: tree.plot_globalid,
+  tree_globalid: tree.globalid,
+  measurement_globalid: meas?.globalid || crypto.randomUUID(),
+  visit_number: visitNum,
+  tree_num: tree.tree_num,
+  az: tree.az || 0,
+  hd: tree.hd || 0,
+  species: tree.species,
+  condition: meas?.condition || '',
+  diameter: meas?.diameter || '',
+  height: meas?.height || '',
+  isPrior
+});
+
+const captureSnapshot = () => {
+  if (rows.value.length === 0) return;
+  lastCellRef.value = { r: activeRow.value, c: activeCol.value };
+  const colKey = columns[activeCol.value].key;
+  lastCellValue.value = rows.value[activeRow.value][colKey];
+};
+
+const commitEditCheck = async () => {
+  if (!lastCellRef.value || rows.value.length === 0) return true;
+  
+  const { r, c } = lastCellRef.value;
+  const row = rows.value[r];
+  if (!row || row.isPrior) return true;
+
+  const col = columns[c];
+  const colKey = col.key;
+  const currentVal = row[colKey];
+  const oldVal = lastCellValue.value;
+
+  // Define which attributes are considered "static" tree attributes
+  const staticFields = ['tree_num', 'az', 'hd', 'species'];
+  
+  if (staticFields.includes(colKey) && String(currentVal) !== String(oldVal)) {
+    const reason = prompt(`Reason for changing static attribute "${col.label}" from "${oldVal}" to "${currentVal}"?`);
+    
+    if (reason === null || reason.trim() === '') {
+      // Discard/Revert
+      row[colKey] = oldVal;
+      await saveRow(row);
+      return false; 
+    } else {
+      // Log Edit
+      await db.edits.add({
+        globalid: crypto.randomUUID(),
+        table_name: 'trees',
+        record_globalid: row.tree_globalid,
+        field_name: colKey,
+        old_value: String(oldVal),
+        new_value: String(currentVal),
+        reason: reason,
+        edit_date: Date.now()
+      });
+    }
+  }
+  return true;
+};
+
 // Load tree records from database
 const loadRows = async () => {
-  if (!store.selectedPlot.value) return;
+  if (!store.selectedPlot.value || !store.selectedVisit.value) return;
 
-  const records = await db.trees
-    .where('plotGlobalid')
-    .equals(store.selectedPlot.value.globalid)
-    .sortBy('treeNumber');
+  const plotId = store.selectedPlot.value.globalid;
+  const currentVisit = store.selectedVisit.value;
 
-  console.log('Loaded records:', records);
-  rows.value = records.map(treeRecordToRow);
+  // Find prior visit
+  const priorVisit = await db.plotVisits
+    .where('plot_globalid')
+    .equals(plotId)
+    .filter(v => v.measurement_date < currentVisit.measurement_date)
+    .reverse()
+    .sortBy('measurement_date')
+    .then(list => list[0]);
+
+  const [trees, currentMeas, priorMeas] = await Promise.all([
+    db.trees.where('plot_globalid').equals(plotId).sortBy('tree_num'),
+    db.treeMeasurements.where('visit_globalid').equals(currentVisit.globalid).toArray(),
+    priorVisit ? db.treeMeasurements.where('visit_globalid').equals(priorVisit.globalid).toArray() : Promise.resolve([])
+  ]);
+
+  const allRows: Row[] = [];
+  trees.forEach(tree => {
+    if (priorVisit) {
+      const pm = priorMeas.find(m => m.tree_globalid === tree.globalid);
+      allRows.push(treeAndMeasToRow(tree, pm, priorVisit.visit_number, true));
+    }
+    const cm = currentMeas.find(m => m.tree_globalid === tree.globalid);
+    allRows.push(treeAndMeasToRow(tree, cm, currentVisit.visit_number, false));
+  });
+
+  rows.value = allRows;
+  
+  // Set initial active row to first editable row
+  activeRow.value = allRows.findIndex(r => !r.isPrior);
+  if (activeRow.value === -1) activeRow.value = 0;
 
   // If no records exist, add some default rows
   if (rows.value.length === 0) {
-    rows.value = [createNewRow()];
+    await addRow();
   }
+  captureSnapshot();
 };
 
 // Save a row to database
 const saveRow = async (row: Row) => {
-  const record = rowToTree(row);
-  await db.trees.put(record);
+  if (row.isPrior) return;
+
+  const tree: ITree = {
+    globalid: row.tree_globalid,
+    plot_globalid: row.plot_globalid,
+    tree_num: Number(row.tree_num),
+    species: row.species,
+    az: Number(row.az),
+    hd: Number(row.hd)
+  };
+
+  const measurement: ITreeMeasurement = {
+    globalid: row.measurement_globalid,
+    tree_globalid: row.tree_globalid,
+    visit_globalid: store.selectedVisit.value!.globalid,
+    plot_code: store.selectedPlot.value!.plotid,
+    condition: row.condition,
+    diameter: Number(row.diameter),
+    sample_type: '',
+    height: Number(row.height)
+  };
+
+  await Promise.all([
+    db.trees.put(tree),
+    db.treeMeasurements.put(measurement)
+  ]);
 };
 
 // Delete a row from database
 const deleteRow = async (row: Row) => {
-  const record = rowToTree(row);
-  // Find the record by compound key and delete it
-  const toDelete = await db.trees
-    .where('plotGlobalid')
-    .equals(record.plotGlobalid)
-    .filter(r => r.treeNumber === record.treeNumber)
-    .toArray();
-
-  if (toDelete.length > 0 && toDelete[0].globalid) {
-    await db.trees.delete(toDelete[0].globalid);
+  if (row.tree_globalid) {
+    await Promise.all([
+      db.trees.delete(row.tree_globalid),
+      db.treeMeasurements.where('tree_globalid').equals(row.tree_globalid).delete()
+    ]);
   }
 };
 
@@ -272,31 +331,47 @@ const scrollActiveIntoView = async () => {
   }
 };
 
-const setActive = (r: number, c: number) => {
+const setActive = async (r: number, c: number) => {
+  if (rows.value[r].isPrior) return;
+  await commitEditCheck();
   activeRow.value = r;
   activeCol.value = c;
+  captureSnapshot();
   scrollActiveIntoView();
 };
 
-const move = (dir: 'up' | 'down' | 'left' | 'right') => {
-  if (dir === 'up' && activeRow.value > 0) activeRow.value--;
-  if (dir === 'down' && activeRow.value < rows.value.length - 1) activeRow.value++;
-  if (dir === 'left' && activeCol.value > 0) activeCol.value--;
-  if (dir === 'right') {
-    if (activeCol.value < columns.length - 1) {
-      activeCol.value++;
-    } else if (activeRow.value < rows.value.length - 1) {
-      activeRow.value++;
-      activeCol.value = 0;
-    }
+const move = async (dir: 'up' | 'down' | 'left' | 'right') => {
+  await commitEditCheck();
+
+  let r = activeRow.value;
+  let c = activeCol.value;
+
+  if (dir === 'up') {
+    do { r--; } while (r >= 0 && rows.value[r].isPrior);
+    if (r >= 0) activeRow.value = r;
   }
+  if (dir === 'down') {
+    do { r++; } while (r < rows.value.length && rows.value[r].isPrior);
+    if (r < rows.value.length) activeRow.value = r;
+  }
+  if (dir === 'left') {
+    const visibleIndices = columns.map((col, i) => col.visible ? i : -1).filter(i => i !== -1);
+    const currentIdx = visibleIndices.indexOf(c);
+    if (currentIdx > 0) activeCol.value = visibleIndices[currentIdx - 1];
+  }
+  if (dir === 'right') {
+    const visibleIndices = columns.map((col, i) => col.visible ? i : -1).filter(i => i !== -1);
+    const currentIdx = visibleIndices.indexOf(c);
+    if (currentIdx < visibleIndices.length - 1) activeCol.value = visibleIndices[currentIdx + 1];
+  }
+  captureSnapshot();
   scrollActiveIntoView();
 };
 
 const pressKey = (key: number | 'back' | '.') => {
   const row = rows.value[activeRow.value];
   const colKey = activeColConfig.value.key;
-  const current = String(row[colKey] || '');
+  const current = String(row[colKey] ?? '');
 
   if (key === 'back') {
     row[colKey] = current.slice(0, -1);
@@ -316,15 +391,34 @@ const setVal = (val: string) => {
   move('right');
 };
 
-const addRow = () => {
+const addRow = async () => {
   if (!store.selectedPlot.value) return;
-  const newRow = createNewRow();
+  
+  const nextTreeNum = rows.value.length > 0 
+    ? Math.max(...rows.value.map(r => Number(r.tree_num))) + 1 
+    : 1;
+
+  const newTree: ITree = {
+    globalid: crypto.randomUUID(),
+    plot_globalid: store.selectedPlot.value.globalid,
+    tree_num: nextTreeNum,
+    species: '',
+    az: 0,
+    hd: 0
+  };
+
+  const newRow = treeAndMeasToRow(
+    newTree, 
+    undefined, 
+    store.selectedVisit.value?.visit_number || 1, 
+    false
+  );
+
   rows.value.push(newRow);
   activeRow.value = rows.value.length - 1;
-  activeCol.value = 0;
+  activeCol.value = 3; // Focus Tr
   scrollActiveIntoView();
-
-  // Save the new row to database
+  
   saveRow(newRow);
 };
 

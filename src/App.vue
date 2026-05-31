@@ -1,20 +1,32 @@
 <template>
-  <div id="app-inner" :class="{ 'dark-mode': isDarkMode }">
+  <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
     <template v-if="store.currentView.value === 'plots'">
       <!-- Plots List View -->
       <header class="p-4 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
         <div>
-          <h1 class="text-lg font-bold">Unit Plots</h1>
-          <p class="text-sm opacity-70">Select a plot to begin inventory</p>
+          <h1 class="text-lg font-bold">Project Plots</h1>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Filter plot ID..."
+            class="text-sm bg-transparent border-b border-[var(--border-color)] focus:border-[var(--accent)] outline-none w-full max-w-[200px] mt-1"
+          />
         </div>
         <div class="relative">
+          <button @click="store.toggleDarkMode()" class="mr-4">
+            <span class="menu-icon">{{ store.isDarkMode.value ? '☀️' : '🌙' }}</span>
+          </button>
           <button @click.stop="toggleMenu" class="p-2 rounded text-xl font-bold" :style="{ color: 'var(--text-primary)' }">
             ⁝
           </button>
           <div v-if="isMenuOpen" class="kebab-menu" @click.stop>
-            <button @click="isDarkMode = !isDarkMode" class="menu-item">
-              <span class="menu-icon">{{ isDarkMode ? '☀️' : '🌙' }}</span>
-              <span>{{ isDarkMode ? 'Light mode' : 'Dark mode' }}</span>
+            <button @click="store.toggleDarkMode()" class="menu-item">
+              <span class="menu-icon">{{ store.isDarkMode.value ? '☀️' : '🌙' }}</span>
+              <span>{{ store.isDarkMode.value ? 'Light mode' : 'Dark mode' }}</span>
+            </button>
+            <button class="menu-item">
+              <span class="menu-icon">ℹ️</span>
+              <span>About</span>
             </button>
             <span class="menu-item">DB Version: {{ dbVersion }}</span>
           </div>
@@ -25,7 +37,7 @@
         <div v-if="plots.length === 0" class="flex items-center justify-center h-full text-center">
           <div>
             <p class="text-xl font-bold mb-2">No plots found</p>
-            <p class="opacity-70 mb-4">Add a new unit plot to get started</p>
+            <p class="opacity-70 mb-4">Add a new project plot to get started</p>
             <button @click="addNewPlot" class="px-6 py-3 rounded bg-blue-600 text-white font-bold hover:bg-blue-700">
               ＋ Add Plot
             </button>
@@ -33,21 +45,31 @@
         </div>
 
         <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-          <div
-            v-for="plot in plots"
-            :key="`${plot.unitName}-${plot.plotNumber}`"
-            class="plot-card"
-            :style="{ backgroundColor: 'var(--cell-bg)', borderColor: 'var(--border-color)' }">
-            <div class="flex-1">
-              <div class="text-sm opacity-70 uppercase tracking-wide">Unit</div>
-              <h2 class="text-2xl font-bold mb-4">{{ plot.unitName }}</h2>
-              <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
-              <p class="text-xl font-mono font-bold">{{ plot.plotNumber }}</p>
+        <div
+          v-for="plot in filteredPlots"
+          :key="`${plot.plotid}`"
+          class="plot-card"
+          :style="{ backgroundColor: 'var(--cell-bg)', borderColor: 'var(--border-color)' }">
+          <div class="w-full">
+            <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
+            <h2 class="text-2xl font-bold mb-3">{{ plot.plotid }}</h2>
+            <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar mt-4">
+              <button 
+                v-for="visit in plot.visits" 
+                :key="visit.globalid"
+                @click.stop="selectVisit(plot, visit)"
+                class="visit-chip">
+                V{{ visit.visit_number }}
+                {{ new Date(visit.measurement_date|| 0).toLocaleDateString()}}
+              </button>
+              <button 
+                @click.stop="addNewVisit(plot)"
+                class="visit-chip !bg-green-600/10 !text-green-600 !border-green-600/30 border-dashed">
+                ＋ Visit
+              </button>
             </div>
-            <button @click="selectPlot(plot)" class="plot-action-btn">
-              <span class="text-2xl">→</span>
-            </button>
           </div>
+        </div>
         </div>
 
         <div class="flex justify-center pt-4">
@@ -66,16 +88,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useAppStore } from './stores/appStore';
-import { db, Plot } from './db';
+import { db, IPlot, IPlotVisit, ITree, ITreeMeasurement } from './db';
 import Trees from './views/Trees.vue';
 
 const store = useAppStore();
 const dbVersion = ref(0);
-const isDarkMode = ref(false);
 const isMenuOpen = ref(false);
-const plots = ref<Plot[]>([]);
+
+interface IPlotWithVisits extends IPlot {
+  visits: IPlotVisit[];
+}
+const plots = ref<IPlotWithVisits[]>([]);
+const searchQuery = ref('');
+
+const filteredPlots = computed(() => {
+  if (!searchQuery.value.trim()) return plots.value;
+  const query = searchQuery.value.toLowerCase();
+  return plots.value.filter(plot => plot.plotid.toLowerCase().includes(query));
+});
 
 const toggleMenu = () => {
   isMenuOpen.value = !isMenuOpen.value;
@@ -85,29 +117,42 @@ const closeMenu = () => {
   isMenuOpen.value = false;
 };
 
-const selectPlot = async (plot: Plot) => {
+const selectVisit = async (plot: IPlot, visit: IPlotVisit) => {
   closeMenu();
-  // Fetch tree records for this plot from the database
-  const trees = await db.trees
-    .where('globalid')
-    .equals(plot.globalid)
-    .toArray();
+  const [trees, measurements] = await Promise.all([
+    db.trees.where('plot_globalid').equals(plot.globalid).toArray(),
+    db.treeMeasurements.where('visit_globalid').equals(visit.globalid).toArray(),
+  ]);
+  store.goToTrees(plot, visit, trees, measurements);
+};
 
-  store.goToTrees(plot, trees);
+const addNewVisit = async (plot: IPlotWithVisits) => {
+  const newVisit: IPlotVisit = {
+    globalid: crypto.randomUUID(),
+    plot_globalid: plot.globalid,
+    measurement_date: Date.now(),
+    // visit_number: plot.visits.length + 1,
+    visit_number: plot.visits.length === 0 ? 1 : Math.max(...plot.visits.map(v => v.visit_number)) + 1,
+  };
+
+  await db.plotVisits.add(newVisit);
+  await loadPlots();
+  
+  const updatedPlot = plots.value.find(p => p.globalid === plot.globalid);
+  const visit = updatedPlot?.visits.find(v => v.globalid === newVisit.globalid);
+  if (updatedPlot && visit) {
+    await selectVisit(updatedPlot, visit);
+  }
 };
 
 const addNewPlot = () => {
   // Simple dialog to add a new plot (can be enhanced with a modal)
-  const unitName = prompt('Enter unit name (e.g., TIMBER-A1):');
-  if (!unitName?.trim()) return;
+  const plotid = prompt('Enter plot id (e.g., 28XJPQ21):');
+  if (!plotid?.trim()) return;
 
-  const plotNumber = prompt('Enter plot number (e.g., 42):');
-  if (!plotNumber?.trim()) return;
-
-  const newPlot: Plot = {
+  const newPlot: IPlot = {
     globalid: crypto.randomUUID(),
-    unitName: unitName.trim(),
-    plotNumber: plotNumber.trim(),
+    plotid: plotid.trim(),
   };
 
   db.plots.add(newPlot).then(() => {
@@ -116,7 +161,16 @@ const addNewPlot = () => {
 };
 
 const loadPlots = async () => {
-  plots.value = await db.plots.toArray();
+  const allPlots = await db.plots.toArray();
+  plots.value = await Promise.all(
+    allPlots.map(async (plot) => {
+      const visits = await db.plotVisits
+        .where('plot_globalid')
+        .equals(plot.globalid)
+        .sortBy('measurement_date');
+      return { ...plot, visits } as IPlotWithVisits;
+    })
+  );
 };
 
 onMounted(() => {
@@ -125,11 +179,9 @@ onMounted(() => {
   // Add some sample data if the database is empty
   db.plots.count().then((count) => {
     if (count === 0) {
-      const samplePlots: Plot[] = [
-        { globalid: crypto.randomUUID(), unitName: 'TIMBER-A1', plotNumber: '42' },
-        { globalid: crypto.randomUUID(), unitName: 'TIMBER-A1', plotNumber: '43' },
-        { globalid: crypto.randomUUID(), unitName: 'TIMBER-B2', plotNumber: '15' },
-        { globalid: crypto.randomUUID(), unitName: 'TIMBER-B2', plotNumber: '16' },
+      const samplePlots: IPlot[] = [
+        { globalid: crypto.randomUUID(), plotid: '28XJPQ21' },
+        { globalid: crypto.randomUUID(), plotid: '32SFYJ40' },
       ];
       db.plots.bulkAdd(samplePlots).then(() => {
         loadPlots();
@@ -182,8 +234,8 @@ onBeforeUnmount(() => {
 
 .plot-card {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   border: 2px solid;
   border-radius: 12px;
   padding: 24px;
@@ -241,6 +293,32 @@ onBeforeUnmount(() => {
 .nav-btn:hover {
   background-color: var(--accent);
   color: white;
+}
+
+.visit-chip {
+  background: var(--btn-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: bold;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.visit-chip:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .kebab-menu {
