@@ -15,7 +15,7 @@ jobs:
     environment:
       name: github-pages
     env:
-      APP_PREFIX: ${{ github.ref_name == 'main' && 'app' || 'dev' }}
+      APP_PREFIX: ${{ github.ref_name == 'main' && 'app' || github.ref_name }}
 
     steps:
       - name: Checkout code
@@ -32,13 +32,17 @@ jobs:
         run: |
           npm ci --legacy-peer-deps
           npm run build
-          mkdir -p ../deploy/${{ env.APP_PREFIX }}
-          cp -r dist/* ../deploy/${{ env.APP_PREFIX }}/
+          echo "Deploy for env.APP_PREFIX = ${{ env.APP_PREFIX }}"
+          ls -la dist
+          mkdir -p ./deploy
+          cp -r dist/* ./deploy
+          echo "tree deploy"
+          tree ./deploy          
         
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4.0.0
         with:
-          path: './dist' # Ensure this matches your Vite build output directory
+          path: './deploy'
 
       - name: Deploy to GitHub Pages
         id: deployment
