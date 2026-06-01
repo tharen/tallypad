@@ -1,3 +1,6 @@
+// TODO: Import-Export to JSON
+// TODO: AGOL feature service sync
+
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
     <template v-if="store.currentView.value === 'plots'">
@@ -24,6 +27,12 @@
               <span class="menu-icon">{{ store.isDarkMode.value ? '☀️' : '🌙' }}</span>
               <span>{{ store.isDarkMode.value ? 'Light mode' : 'Dark mode' }}</span>
             </button>
+
+            <button class="menu-item" @click="wipeDB()">
+              <span class="menu-icon">ℹ️</span>
+              <span>Wipe Database</span>
+            </button>
+            
             <button class="menu-item">
               <span class="menu-icon">ℹ️</span>
               <span>About</span>
@@ -51,8 +60,16 @@
           class="plot-card"
           :style="{ backgroundColor: 'var(--cell-bg)', borderColor: 'var(--border-color)' }">
           <div class="w-full">
-            <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
-            <h2 class="text-2xl font-bold mb-3">{{ plot.plotid }}</h2>
+            <div class="flex justify-between items-start">
+              <div>
+                <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
+                <h2 class="text-2xl font-bold mb-3">{{ plot.plotid }}</h2>
+              </div>
+              <div class="text-right">
+                <div class="text-sm opacity-70 uppercase tracking-wide">Trees</div>
+                <h2 class="text-2xl font-bold mb-3">33</h2>
+              </div>
+            </div>
             <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar mt-4">
               <button 
                 v-for="visit in plot.visits" 
@@ -90,7 +107,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { useAppStore } from './stores/appStore';
-import { db, IPlot, IPlotVisit, ITree, ITreeMeasurement } from './db';
+import { db, IPlot, IPlotVisit, ITree, ITreeMeasurement, renewDatabase } from './db';
 import Trees from './views/Trees.vue';
 
 const store = useAppStore();
@@ -195,6 +212,12 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', closeMenu);
 });
+
+const wipeDB = async () => {
+  renewDatabase();
+  await loadPlots();
+};
+
 </script>
 
 <style scoped>

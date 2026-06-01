@@ -104,3 +104,7 @@ export class TallypadDB extends Dexie {
 
 // Export a single instance to use across your application
 export const db = new TallypadDB();
+
+export const renewDatabase = () => {
+  db.delete({ disableAutoOpen: false });
+};

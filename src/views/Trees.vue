@@ -1,3 +1,5 @@
+// TODO: When navigating to a numeric cell, edits from the number pad should replace the existing contents, as if the text was selected before typing.
+
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
     <header class="p-2 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
@@ -131,6 +133,7 @@ type RowKey =
 
 interface Row extends Record<RowKey, any> {
   isPrior: boolean;
+  isNew: boolean;
 }
 
 const store = useAppStore();
@@ -157,7 +160,7 @@ const columns: Column[] = [
 
 const rows = ref<Row[]>([]);
 
-const treeAndMeasToRow = (tree: ITree, meas: ITreeMeasurement | undefined, visitNum: number, isPrior: boolean): Row => ({
+const treeAndMeasToRow = (tree: ITree, meas: ITreeMeasurement | undefined, visitNum: number, isPrior: boolean, isNew: boolean): Row => ({
   globalid: tree.globalid,
   plot_globalid: tree.plot_globalid,
   tree_globalid: tree.globalid,
@@ -170,7 +173,8 @@ const treeAndMeasToRow = (tree: ITree, meas: ITreeMeasurement | undefined, visit
   condition: meas?.condition || '',
   diameter: meas?.diameter || '',
   height: meas?.height || '',
-  isPrior
+  isPrior,
+  isNew
 });
 
 const captureSnapshot = () => {
@@ -195,7 +199,7 @@ const commitEditCheck = async () => {
   // Define which attributes are considered "static" tree attributes
   const staticFields = ['tree_num', 'az', 'hd', 'species'];
   
-  if (staticFields.includes(colKey) && String(currentVal) !== String(oldVal)) {
+  if (!row.isNew && staticFields.includes(colKey) && String(currentVal) !== String(oldVal)) {
     const reason = prompt(`Reason for changing static attribute "${col.label}" from "${oldVal}" to "${currentVal}"?`);
     
     if (reason === null || reason.trim() === '') {
@@ -244,12 +248,12 @@ const loadRows = async () => {
 
   const allRows: Row[] = [];
   trees.forEach(tree => {
-    if (priorVisit) {
-      const pm = priorMeas.find(m => m.tree_globalid === tree.globalid);
-      allRows.push(treeAndMeasToRow(tree, pm, priorVisit.visit_number, true));
+    const pm = priorVisit ? priorMeas.find(m => m.tree_globalid === tree.globalid) : undefined;
+    if (priorVisit && pm) {
+      allRows.push(treeAndMeasToRow(tree, pm, priorVisit.visit_number, true, false));
     }
     const cm = currentMeas.find(m => m.tree_globalid === tree.globalid);
-    allRows.push(treeAndMeasToRow(tree, cm, currentVisit.visit_number, false));
+    allRows.push(treeAndMeasToRow(tree, cm, currentVisit.visit_number, false, !pm));
   });
 
   rows.value = allRows;
@@ -411,12 +415,14 @@ const addRow = async () => {
     newTree, 
     undefined, 
     store.selectedVisit.value?.visit_number || 1, 
-    false
+    false,
+    true
   );
 
   rows.value.push(newRow);
   activeRow.value = rows.value.length - 1;
   activeCol.value = 3; // Focus Tr
+  captureSnapshot();
   scrollActiveIntoView();
   
   saveRow(newRow);
@@ -424,11 +430,16 @@ const addRow = async () => {
 
 const removeRow = async () => {
   if (rows.value.length > 1) {
+    const rowToDelete = rows.value[activeRow.value];
+
+    if (!rowToDelete.isNew) {
+      alert("Only new tree records can be deleted. Records from prior visits cannot be removed.");
+      return;
+    }
+
     const rowIndex = activeRow.value + 1;
     const message = `Delete row ${rowIndex}? This cannot be undone.`;
     if (!confirm(message)) return;
-
-    const rowToDelete = rows.value[activeRow.value];
     rows.value.splice(activeRow.value, 1);
 
     if (activeRow.value >= rows.value.length) {
