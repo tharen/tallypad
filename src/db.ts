@@ -27,8 +27,9 @@ export interface IPlotVisit extends EsriEditorTracking {
   plot_globalid: string;     // Foreign Key -> Plots.globalid
   measurement_date: number;  // Timestamp
   visit_number: number;
+  status?: string;
   crew?: string;
-  visit_remarks?: string;
+  remarks?: string;
 }
 
 // --- 3. Trees Interface ---
@@ -37,11 +38,12 @@ export interface ITree extends EsriEditorTracking {
   globalid: string;          // Primary Key
   plot_globalid: string;     // Foreign Key -> Plots.globalid
   tree_num: number;
-  species: string;
-  az: number;
-  hd: number;
+  sp: string;
+  az?: number;
+  hd?: number;
   ref?: string;
   sd?: number;
+  remarks?: string;
 }
 
 // --- 4. Tree Measurements Interface ---
@@ -50,14 +52,30 @@ export interface ITreeMeasurement extends EsriEditorTracking {
   globalid: string;          // Primary Key
   tree_globalid: string;     // Foreign Key -> Trees.globalid
   visit_globalid: string;    // Foreign Key -> Plot_Visits.globalid
-  plot_code: string;
-  condition: string;
-  diameter: number;
-  sample_type: string;
-  height: number;
-  form_point?: number;
-  form_dob?: number;
-  crown_base?: number;
+  gp: string;
+  gt: number;
+  dbh: number;
+  s: string;
+  fc?: number;
+  ht?: number;
+  age?: number;
+  cr?: number;
+  cc?: number;
+  d1?: number;
+  s1?: number;
+  d2?: number;
+  s2?: number;
+  d3?: number;
+  s3?: number;
+  def1?: number;
+  def2?: number;
+  def3?: number;
+  c?: number;
+  bt?: number;
+  upstht?: number;
+  upstd?: number;
+  fiveyr?: number;
+  tenyr?: string;
   remarks?: string;
 }
 

@@ -1,5 +1,8 @@
 // TODO: Import-Export to JSON
 // TODO: AGOL feature service sync
+// TODO: Add tree count, remarks, lat-lon on the plot card
+// TODO: Add stem map view with tree labels and tap to edit
+// TODO: Add GPS location update
 
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
@@ -16,7 +19,7 @@
           />
         </div>
         <div class="relative">
-          <button @click="store.toggleDarkMode()" class="mr-4">
+          <button @click="store.toggleDarkMode()" class="mr-4 text-xl">
             <span class="menu-icon">{{ store.isDarkMode.value ? '☀️' : '🌙' }}</span>
           </button>
           <button @click.stop="toggleMenu" class="p-2 rounded text-xl font-bold" :style="{ color: 'var(--text-primary)' }">
@@ -67,7 +70,7 @@
               </div>
               <div class="text-right">
                 <div class="text-sm opacity-70 uppercase tracking-wide">Trees</div>
-                <h2 class="text-2xl font-bold mb-3">33</h2>
+                <h2 class="text-2xl font-bold mb-3">{{ plot.latestTreeCount }}</h2>
               </div>
             </div>
             <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar mt-4">
@@ -105,7 +108,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
+import { ref, onMounted, onUnmounted , onBeforeUnmount, computed } from 'vue';
 import { useAppStore } from './stores/appStore';
 import { db, IPlot, IPlotVisit, ITree, ITreeMeasurement, renewDatabase } from './db';
 import Trees from './views/Trees.vue';
@@ -116,6 +119,7 @@ const isMenuOpen = ref(false);
 
 interface IPlotWithVisits extends IPlot {
   visits: IPlotVisit[];
+  latestTreeCount: number;
 }
 const plots = ref<IPlotWithVisits[]>([]);
 const searchQuery = ref('');
@@ -178,14 +182,24 @@ const addNewPlot = () => {
 };
 
 const loadPlots = async () => {
-  const allPlots = await db.plots.toArray();
+  const allPlots = await db.plots.orderBy('plotid').toArray();
   plots.value = await Promise.all(
     allPlots.map(async (plot) => {
       const visits = await db.plotVisits
         .where('plot_globalid')
         .equals(plot.globalid)
         .sortBy('measurement_date');
-      return { ...plot, visits } as IPlotWithVisits;
+
+      let latestTreeCount = 0;
+      if (visits.length > 0) {
+        const latestVisit = visits[0];
+        latestTreeCount = await db.treeMeasurements
+          .where('visit_globalid')
+          .equals(latestVisit.globalid)
+          .count();
+      }
+
+      return { ...plot, visits, latestTreeCount } as IPlotWithVisits;
     })
   );
 };
@@ -380,4 +394,5 @@ const wipeDB = async () => {
   width: 1.25rem;
   text-align: center;
 }
+
 </style>

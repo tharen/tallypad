@@ -1,21 +1,52 @@
 // TODO: When navigating to a numeric cell, edits from the number pad should replace the existing contents, as if the text was selected before typing.
+// TODO: Increase contrast between prior and current rows
+// TODO: Add all measurement fields
+// TODO: Add horizontal scrolling with fixed tree ID columns
+// TODO: Sort by azimuth
 
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
+    <div v-if="isLocked" class="lock-overlay" @touchmove.prevent>
+      <div class="lock-content">
+        <!-- <p>Screen Locked</p> -->
+        <!-- Swipe/Slide to Unlock gesture -->
+        <div 
+          class="swipe-area" 
+          @touchstart="onTouchStart" 
+          @touchmove="onTouchMove" 
+          @touchend="onTouchEnd"
+        >
+          <div class="swipe-track">
+            <div class="swipe-thumb" :style="{ transform: `translateX(${swipeX}px)` }">
+              →
+            </div>
+            <span>Swipe to unlock</span>
+          </div>
+        </div>
+      </div>
+    </div>
     <header class="p-2 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
       <div @click="backToPlots" class="m-0 p-0">&#9664</div>
       <div>
-        <h1 class="text-xs uppercase opacity-70 font-bold">Forest Inventory</h1>
-        <div class="flex gap-3 font-mono text-sm font-black">
-          <span>PLOT: {{ store.selectedPlot.value?.plotid }}</span>
-          <span class="opacity-40">|</span>
-          <span>VISIT: {{ store.selectedVisit.value?.visit_number }}</span>
-          <span class="opacity-60 font-normal">
-            ({{ new Date(store.selectedVisit.value?.measurement_date || 0).toLocaleDateString() }})
-          </span>
+        <!-- <h1 class="text-xs uppercase opacity-70 font-bold">Forest Inventory</h1> -->
+        <div class="font-mono text-sm font-black">
+          <div>PLOT: {{ store.selectedPlot.value?.plotid }}</div>
+          <!-- <span class="opacity-40">|</span> -->
+          <div class="flex gap-3">
+            <span>VISIT: {{ store.selectedVisit.value?.visit_number }}</span>
+            <span class="opacity-60 font-normal text-sm">
+              ({{ new Date(store.selectedVisit.value?.measurement_date || 0).toLocaleDateString() }})
+            </span>
+          </div>
         </div>
       </div>
       <div class="relative">
+        <button v-if="!isLocked" @click="requestWakeLock" class="mr-2 text-xl">
+          <span class="menu-icon">🔒</span>
+        </button>
+        <button @click="store.toggleDarkMode()" class="mr-4 text-xl">
+          <span class="menu-icon">{{ store.isDarkMode.value ? '☀️' : '🌙' }}</span>
+        </button>
         <button @click.stop="toggleMenu" class="p-1 rounded text-xl font-bold min-w-7" :style="{ color: 'var(--text-primary)' }">
           ⁝
         </button>
@@ -43,7 +74,10 @@
           <tr>
             <!-- <th v-for="col in columns" :key="col.key">{{ col.label }}</th> -->
             <template v-for="col in columns" :key="col.key">
-              <th v-if="col.visible">{{ col.label }}</th>
+              <th v-if="col.visible"
+                :class="{ 'freeze-col': col.freeze }">
+                {{ col.label }}
+              </th>
             </template>
           </tr>
         </thead>
@@ -52,8 +86,8 @@
             <template v-for="(col, cIdx) in columns" :key="col.key">
               <td v-if="col.visible"
                 :key="col.key"
-                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx, 'prior-val': row.isPrior }"
-                :style="row.isPrior ? { opacity: 0.5, backgroundColor: 'var(--btn-bg)' } : {}"
+                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx, 'prior-val': row.isPrior, 'freeze-col': col.freeze }""
+                :style="row.isPrior ? { opacity: 0.65, backgroundColor: 'var(--btn-bg)' } : {}"
                 @click="setActive(rIdx, cIdx)">
                 {{ row[col.key] }}
               </td>
@@ -68,11 +102,11 @@
         <button @click="addRow" class="nav-btn !text-green-600">＋</button>
         <button @click="removeRow" class="nav-btn !text-red-600">－</button>
       </div>
-      <div class="grid grid-cols-4 gap-2">
-        <button @click="move('left')" class="nav-btn !border-0" :style="{backgroundColor: 'var(--keypad-bg)'}">⬅️</button>
-        <button @click="move('right')" class="nav-btn !border-0" :style="{backgroundColor: 'var(--keypad-bg)'}">➡️</button>
-        <button @click="move('up')" class="nav-btn !border-0" :style="{backgroundColor: 'var(--keypad-bg)'}">⬆️</button>
-        <button @click="move('down')" class="nav-btn !border-0":style="{backgroundColor: 'var(--keypad-bg)'}">⬇️</button>
+      <div class="grid grid-cols-4 gap-0">
+        <button @click="move('up')" class="nav-btn !border-0 !text-4xl" :style="{backgroundColor: 'var(--keypad-bg)'}">⬆️</button>
+        <button @click="move('down')" class="nav-btn !border-0 !text-4xl":style="{backgroundColor: 'var(--keypad-bg)'}">⬇️</button>
+        <button @click="move('left')" class="nav-btn !border-0 !text-4xl" :style="{backgroundColor: 'var(--keypad-bg)'}">⬅️</button>
+        <button @click="move('right')" class="nav-btn !border-0 !text-4xl" :style="{backgroundColor: 'var(--keypad-bg)'}">➡️</button>
       </div>
     </div>
 
@@ -105,7 +139,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue';
 import { useAppStore } from '../stores/appStore';
 import { db, ITree, ITreeMeasurement } from '../db';
 
@@ -114,6 +148,7 @@ type Column = {
   key: RowKey;
   type: 'string' | 'number' | 'select';
   visible: boolean;
+  freeze?: boolean;
   options?: string[];
 };
 
@@ -124,12 +159,36 @@ type RowKey =
   | 'measurement_globalid'
   | 'visit_number'
   | 'tree_num'
-  | 'species'
   | 'az'
   | 'hd'
-  | 'condition'
-  | 'diameter'
-  | 'height';
+  | 'gp'
+  | 'sp'
+  | 'gt'
+  | 'dbh'
+  | 's'
+  | 'fc'
+  | 'ht'
+  | 'upstd'
+  | 'upstht'
+  | 'cr'
+  | 'cc'
+  | 'd1'
+  | 's1'
+  | 'd2'
+  | 's2'
+  | 'd3'
+  | 's3'
+  | 'def1'
+  | 'def2'
+  | 'def3'
+  | 'c'
+  | 'age'
+  | 'bt'
+  | 'fiveyr'
+  | 'tenyr'
+  | 'ref'
+  | 'sd'
+  | 'remarks';
 
 interface Row extends Record<RowKey, any> {
   isPrior: boolean;
@@ -146,16 +205,39 @@ const lastCellValue = ref<any>(null);
 const lastCellRef = ref<{ r: number, c: number } | null>(null);
 
 const columns: Column[] = [
-  { label: 'Global ID', key: 'globalid', type: 'string', visible: false },
-  { label: 'Plot ID', key: 'plot_globalid', type: 'string', visible: false },
-  { label: 'V', key: 'visit_number', type: 'number', visible: true },
-  { label: 'Tr', key: 'tree_num', type: 'number', visible: true },
-  { label: 'AZ', key: 'az', type: 'number', visible: true },
-  { label: 'HD', key: 'hd', type: 'number', visible: true },
-  { label: 'SP', key: 'species', type: 'select', options: ['DF', 'WH', 'RC', 'SS', 'RA', 'BM', 'NF', 'SF', 'WP', 'PP', 'SP', 'JP', 'GC', 'TO', 'CL', 'OC', 'OH', 'NA'], visible: true },
-  { label: 'CND', key: 'condition', type: 'select', options: ['L', 'D', 'C', 'G'], visible: true },
-  { label: 'DBH', key: 'diameter', type: 'number', visible: true },
-  { label: 'HT', key: 'height', type: 'number', visible: true },
+  { label: 'Global ID', key: 'globalid', type: 'string', visible: false , freeze: false },
+  { label: 'Plot ID', key: 'plot_globalid', type: 'string', visible: false, freeze: false},
+  { label: 'V', key: 'visit_number', type: 'number', visible: true, freeze: false},
+  { label: 'Tr', key: 'tree_num', type: 'number', visible: true, freeze: true},
+  { label: 'AZ', key: 'az', type: 'number', visible: true, freeze: true},
+  { label: 'HD', key: 'hd', type: 'number', visible: true, freeze: true},
+  { label: 'SP', key: 'sp', type: 'select', options: ['DF', 'WH', 'RC', 'SS', 'RA', 'BM', 'NF', 'SF', 'WP', 'PP', 'SP', 'JP', 'GC', 'TO', 'CL', 'OC', 'OH', 'NA'], visible: true, freeze: true},
+  { label: 'DBH', key: 'dbh', type: 'number', visible: true },
+  { label: 'GP', key: 'gp', type: 'select', visible: true, options: ['..','SN','DD']},
+  { label: 'GT', key: 'gt', type: 'number', visible: true },
+  { label: 'HT', key: 'ht', type: 'number', visible: true },
+  { label: 'S', key: 's', type: 'select', options: [5,6,7,8], visible: true },
+  { label: 'TD', key: 'upstd', type: 'number', visible: true },
+  { label: 'THT', key: 'upstht', type: 'number', visible: true },
+  { label: 'CR', key: 'cr', type: 'number', visible: true },
+  { label: 'CC', key: 'cc', type: 'select', visible: true, options: [3,2,1] },
+  { label: 'D1', key: 'd1', type: 'number', visible: true },
+  { label: 'S1', key: 's1', type: 'number', visible: true },
+  { label: 'D2', key: 'd2', type: 'number', visible: true },
+  { label: 'S2', key: 's2', type: 'number', visible: true },
+  { label: 'D3', key: 'd3', type: 'number', visible: true },
+  { label: 'S3', key: 's3', type: 'number', visible: true },
+  { label: 'Def1', key: 'def1', type: 'number', visible: true },
+  { label: 'Def2', key: 'def2', type: 'number', visible: true },
+  { label: 'Def3', key: 'def3', type: 'number', visible: true },
+  { label: 'CND', key: 'c', type: 'select', options: ['L', 'D', 'C', 'G'], visible: true },
+  { label: 'Age', key: 'age', type: 'number', visible: true },
+  { label: 'BT', key: 'bt', type: 'number', visible: true },
+  { label: '5yr', key: 'fiveyr', type: 'number', visible: true },
+  { label: '10yr', key: 'tenyr', type: 'number', visible: true },
+  { label: 'Ref', key: 'ref', type: 'string', visible: true },
+  { label: 'SD', key: 'sd', type: 'string', visible: true },
+  { label: 'Remarks', key: 'remarks', type: 'string', visible: true },
 ];
 
 const rows = ref<Row[]>([]);
@@ -169,10 +251,34 @@ const treeAndMeasToRow = (tree: ITree, meas: ITreeMeasurement | undefined, visit
   tree_num: tree.tree_num,
   az: tree.az || 0,
   hd: tree.hd || 0,
-  species: tree.species,
-  condition: meas?.condition || '',
-  diameter: meas?.diameter || '',
-  height: meas?.height || '',
+  sp: tree.sp,
+  gp: meas?.gp || '',
+  gt: meas?.gt || '',
+  dbh: meas?.dbh || '',
+  s: meas?.s || '',
+  upstd: meas?.upstd || '',
+  upstht: meas?.upstht || '',
+  cr: meas?.cr || '',
+  cc: meas?.cc || '',
+  ht: meas?.ht || '',
+  fc: meas?.fc || '',
+  d1: meas?.d1 || '',
+  s1: meas?.s1 || '',
+  d2: meas?.d2 || '',
+  s2: meas?.s2 || '',
+  d3: meas?.d3 || '',
+  s3: meas?.s3 || '',
+  def1: meas?.def1 || '',
+  def2: meas?.def2 || '',
+  def3: meas?.def3 || '',
+  c: meas?.c || '',
+  age: meas?.age || '',
+  bt: meas?.bt || '',
+  fiveyr: meas?.fiveyr || '',
+  tenyr: meas?.tenyr || '',
+  ref: tree?.ref || '',
+  sd: tree?.sd || '',
+  remarks: meas?.remarks || '',
   isPrior,
   isNew
 });
@@ -241,7 +347,7 @@ const loadRows = async () => {
     .then(list => list[0]);
 
   const [trees, currentMeas, priorMeas] = await Promise.all([
-    db.trees.where('plot_globalid').equals(plotId).sortBy('tree_num'),
+    db.trees.where('plot_globalid').equals(plotId).sortBy('az'),
     db.treeMeasurements.where('visit_globalid').equals(currentVisit.globalid).toArray(),
     priorVisit ? db.treeMeasurements.where('visit_globalid').equals(priorVisit.globalid).toArray() : Promise.resolve([])
   ]);
@@ -277,20 +383,29 @@ const saveRow = async (row: Row) => {
     globalid: row.tree_globalid,
     plot_globalid: row.plot_globalid,
     tree_num: Number(row.tree_num),
-    species: row.species,
+    sp: row.sp,
     az: Number(row.az),
-    hd: Number(row.hd)
+    hd: Number(row.hd),
+    remarks: row.remarks
   };
 
   const measurement: ITreeMeasurement = {
     globalid: row.measurement_globalid,
     tree_globalid: row.tree_globalid,
     visit_globalid: store.selectedVisit.value!.globalid,
-    plot_code: store.selectedPlot.value!.plotid,
-    condition: row.condition,
-    diameter: Number(row.diameter),
-    sample_type: '',
-    height: Number(row.height)
+    dbh: Number(row.dbh),
+    gp: row.gp,
+    gt: Number(row.gt),
+    upstd: Number(row.upstd),
+    upstht: Number(row.upstht),
+    cr: Number(row.cr),
+    cc: row.cc,
+    d1: Number(row.d1),
+    s1: Number(row.s1),
+    s: row.s,
+    ht: Number(row.ht),
+    c: row.c,
+    
   };
 
   await Promise.all([
@@ -406,7 +521,7 @@ const addRow = async () => {
     globalid: crypto.randomUUID(),
     plot_globalid: store.selectedPlot.value.globalid,
     tree_num: nextTreeNum,
-    species: '',
+    sp: '',
     az: 0,
     hd: 0
   };
@@ -489,6 +604,83 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', updateFullscreenState);
   document.removeEventListener('click', closeMenu);
 });
+
+// Screen Lock
+const isLocked = ref(false)
+let wakeLock: WakeLockSentinel | null = null
+
+// Swipe variables
+const startX = ref(0)
+const currentX = ref(0)
+const swipeX = ref(0)
+const threshold = 150 // Minimum swipe distance in px
+
+// Request Wake Lock
+const requestWakeLock = async () => {
+  if ('wakeLock' in navigator) {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen')
+      swipeX.value = 0
+      isLocked.value = true
+    } catch (err) {
+      console.error('Wake lock failed:', err)
+    }
+  }
+}
+
+// Release Wake Lock
+const releaseWakeLock = async () => {
+  if (wakeLock) {
+    await wakeLock.release()
+    wakeLock = null
+  }
+}
+
+// Swipe Handlers
+const onTouchStart = (e: TouchEvent) => {
+  startX.value = e.touches[0].clientX
+  currentX.value = startX.value
+}
+
+const onTouchMove = (e: TouchEvent) => {
+  currentX.value = e.touches[0].clientX
+  const deltaX = currentX.value - startX.value
+  
+  // Constrain swipe within track (0 to 200px)
+  if (deltaX > 0) {
+    swipeX.value = Math.min(deltaX, 200)
+  }
+}
+
+const onTouchEnd = () => {
+  if (swipeX.value >= threshold) {
+    unlockScreen()
+    swipeX.value = 0
+  } else {
+    // Snap back if released too early
+    swipeX.value = 0
+  }
+}
+
+const unlockScreen = async () => {
+  isLocked.value = false
+  await releaseWakeLock()
+}
+
+// onMounted(async () => {
+//   await requestWakeLock()
+//   // Re-acquire wake lock if tab becomes visible again
+//   document.addEventListener('visibilitychange', async () => {
+//     if (isLocked.value && document.visibilityState === 'visible') {
+//       await requestWakeLock()
+//     }
+//   })
+// })
+
+onUnmounted(async () => {
+  await releaseWakeLock()
+})
+
 </script>
 
 <style>
@@ -529,7 +721,9 @@ onBeforeUnmount(() => {
 .table-container {
   flex: 1 1 0;
   min-height: 0;
+  width: 100%;
   overflow-y: auto;
+  overflow-x: auto;
   border-bottom: 2px solid var(--border-color);
 }
 
@@ -552,12 +746,19 @@ th {
 
 td {
   border: 1px solid var(--border-color);
-  padding: 0;
+  padding: 4px;
   text-align: center;
   height: 44px;
   background: var(--cell-bg);
   color: var(--text-primary);
 }
+
+.freeze-col {
+    position: sticky;
+    left: 0;
+    z-index: 10; /* Keeps the column on top of regular scrolling data */
+    background-color: #f1f1f1; /* Optional: distinct background for frozen column */
+  }
 
 .active-cell {
   outline: 3px solid var(--accent);
@@ -609,6 +810,7 @@ td {
   font-weight: 600;
   text-align: center;
   min-height: 44px;
+  max-height: 40px;
 }
 
 .active-chip {
@@ -649,5 +851,58 @@ td {
 .menu-icon {
   width: 1.25rem;
   text-align: center;
+}
+
+.lock-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-family: sans-serif;
+}
+
+.lock-content {
+  text-align: center;
+}
+
+.swipe-area {
+  margin-top: 2rem;
+  width: 300px;
+  height: 60px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 30px;
+  position: relative;
+  overflow: hidden;
+  touch-action: none; /* Disables default browser scrolling/pinching during swipe */
+}
+
+.swipe-track {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  position: relative;
+}
+
+.swipe-thumb {
+  width: 50px;
+  height: 50px;
+  background-color: #fff;
+  border-radius: 50%;
+  position: absolute;
+  left: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #000;
+  font-weight: bold;
+  cursor: pointer;
 }
 </style>
