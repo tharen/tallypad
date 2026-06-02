@@ -31,6 +31,11 @@
               <span>{{ store.isDarkMode.value ? 'Light mode' : 'Dark mode' }}</span>
             </button>
 
+            <button class="menu-item" @click="store.goToSetup()">
+              <span class="menu-icon">⚙️</span>
+              <span>Setup / Sync</span>
+            </button>
+
             <button class="menu-item" @click="wipeDB()">
               <span class="menu-icon">ℹ️</span>
               <span>Wipe Database</span>
@@ -104,6 +109,11 @@
       <!-- Trees View -->
       <Trees />
     </template>
+
+    <template v-else-if="store.currentView.value === 'setup'">
+      <!-- Setup View -->
+      <Setup />
+    </template>
   </div>
 </template>
 
@@ -112,6 +122,7 @@ import { ref, onMounted, onUnmounted , onBeforeUnmount, computed } from 'vue';
 import { useAppStore } from './stores/appStore';
 import { db, IPlot, IPlotVisit, ITree, ITreeMeasurement, renewDatabase } from './db';
 import Trees from './views/Trees.vue';
+import Setup from './views/Setup.vue';
 
 const store = useAppStore();
 const dbVersion = ref(0);
@@ -207,6 +218,21 @@ const loadPlots = async () => {
 onMounted(() => {
   dbVersion.value = db.verno;
   loadPlots();
+
+  // Handle Esri OAuth redirect hash
+  const hash = window.location.hash;
+  if (hash) {
+    const params = new URLSearchParams(hash.substring(1));
+    const token = params.get('access_token');
+    const user = params.get('username');
+    if (token && user) {
+      store.setEsriAuth(token, user);
+      store.goToSetup();
+      // Clear the hash from the URL
+      window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
+    }
+  }
+
   // Add some sample data if the database is empty
   db.plots.count().then((count) => {
     if (count === 0) {
