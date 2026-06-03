@@ -218,19 +218,59 @@ const loadPlots = async () => {
 onMounted(() => {
   dbVersion.value = db.verno;
   loadPlots();
-
-  // Handle Esri OAuth redirect hash
-  const hash = window.location.hash;
-  if (hash) {
-    const params = new URLSearchParams(hash.substring(1));
-    const token = params.get('access_token');
-    const user = params.get('username');
-    if (token && user) {
-      store.setEsriAuth(token, user);
-      store.goToSetup();
-      // Clear the hash from the URL
-      window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
+  
+    // Handle Esri OAuth redirect (Code Grant)
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    if (code) {
+      const verifier = localStorage.getItem('esri_code_verifier');
+      const REDIRECT_URI = window.location.origin + window.location.pathname.replace(/\/$/, '') + '/';
+      console.log('Redirect URI: ', REDIRECT_URI)
+      console.log('Code: ', code)
+      console.log('Verifier: ', verifier)
+      
+      fetch('https://www.arcgis.com/sharing/rest/oauth2/token', {
+        method: 'POST',
+        body: new URLSearchParams({
+          f: 'json',
+          client_id: import.meta.env.VITE_ESRI_CLIENT_ID,
+          grant_type: 'authorization_code',
+          code: code,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: verifier || ''
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.access_token) {
+          const expiration = Date.now() + (data.expires_in * 1000);
+          console.log('Token Expiration: ', expiration)
+          store.setEsriAuth(data.access_token, data.username, expiration, data.refresh_token);
+          store.goToSetup();
+          window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
+          localStorage.removeItem('esri_code_verifier');
+        } else {
+          console.error('Esri Token Exchange Failed:', data);
+        }
+      });
     }
+
+    // Periodic check for token refresh (every minute)
+    const refreshInterval = setInterval(() => {
+      if (store.esriToken.value && store.isTokenExpired.value) {
+        store.refreshEsriToken().then(success => {
+          if (!success) {
+            console.warn("Background refresh failed. Manual login may be required.");
+          }
+        });
+    }
+    }, 60000);
+    
+    onUnmounted(() => clearInterval(refreshInterval));
+
+  // Check if current session token is expired
+  if (store.isTokenExpired.value) {
+    store.logoutEsri();
   }
 
   // Add some sample data if the database is empty
@@ -261,28 +301,6 @@ const wipeDB = async () => {
 </script>
 
 <style scoped>
-:root {
-  --bg-primary: #ffffff;
-  --text-primary: #000000;
-  --border-color: #333333;
-  --accent: #2563eb;
-  --cell-bg: #ffffff;
-  --keypad-bg: #e5e7eb;
-  --btn-bg: #f3f4f6;
-  --header-bg: #ffffff;
-}
-
-.dark-mode {
-  --bg-primary: #000000;
-  --text-primary: #ffffff;
-  --border-color: #444444;
-  --accent: #3b82f6;
-  --cell-bg: #1a1a1a;
-  --keypad-bg: #111111;
-  --btn-bg: #222222;
-  --header-bg: #000000;
-}
-
 #app-inner {
   background-color: var(--bg-primary);
   color: var(--text-primary);

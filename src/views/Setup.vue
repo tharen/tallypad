@@ -3,8 +3,7 @@
     <header class="p-2 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
       <div @click="store.goToPlots()" class="m-0 p-0 cursor-pointer text-xl">◀</div>
       <div class="flex flex-col items-center">
-        <h1 class="text-xs uppercase opacity-70 font-bold">ArcGIS Online</h1>
-        <div class="text-sm font-black">SETUP & SYNC</div>
+        <h1 class="text-xs uppercase opacity-70 font-bold">Setup</h1>
       </div>
       <div class="w-6"></div> <!-- Spacer -->
     </header>
@@ -14,7 +13,7 @@
         <h2 class="text-lg font-bold">Authentication</h2>
         
         <div v-if="!store.esriToken.value" class="p-4 rounded-lg bg-[var(--btn-bg)] border border-[var(--border-color)]">
-          <p class="text-sm mb-4 opacity-80">Log in to ArcGIS Online to sync your plot data with feature services.</p>
+          <p class="text-sm mb-4 opacity-80">Log in using your ESRI ArcGIS Online credentials.</p>
           <button @click="login" class="w-full py-3 bg-blue-600 text-white rounded-md font-bold hover:bg-blue-700 transition-colors">
             Login with ArcGIS
           </button>
@@ -39,11 +38,12 @@
       <section class="space-y-4">
         <h2 class="text-lg font-bold">Profile Settings</h2>
         <div class="flex flex-col gap-2">
-          <label class="text-xs uppercase opacity-60">Manual Display Name</label>
+          <label class="text-xs uppercase opacity-60">User Name</label>
           <input 
             v-model="store.userName.value" 
             placeholder="Enter name..." 
             class="p-3 bg-[var(--cell-bg)] border border-[var(--border-color)] rounded-md focus:border-[var(--accent)] outline-none"
+            :disabled="store.esriToken.value !== null"
           />
         </div>
       </section>
@@ -63,7 +63,14 @@
   const REDIRECT_URI = window.location.origin + window.location.pathname.replace(/\/$/, '') + '/';
 
   const login = () => {
-    const authUrl = `https://www.arcgis.com/sharing/rest/oauth2/authorize?client_id=${CLIENT_ID}&response_type=token&expiration=20160&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+    // Generate a cryptographically strong verifier for PKCE.
+    // RFC 7636 requires a minimum length of 43 characters. 
+    // Two UUIDs combined provide ~72 characters, well within the 43-128 range.
+    const verifier = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, '');
+    localStorage.setItem('esri_code_verifier', verifier);
+
+    // response_type=code is required for refresh tokens
+    const authUrl = `https://www.arcgis.com/sharing/rest/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&expiration=20160&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code_challenge=${verifier}&code_challenge_method=plain`;
     window.location.href = authUrl;
   };
 </script>
