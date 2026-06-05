@@ -75,7 +75,8 @@
             <!-- <th v-for="col in columns" :key="col.key">{{ col.label }}</th> -->
             <template v-for="col in columns" :key="col.key">
               <th v-if="col.visible"
-                :class="{ 'freeze-col': col.freeze }">
+                class="w-40"
+                :class="{ 'xfreeze-col': col.freeze }">
                 {{ col.label }}
               </th>
             </template>
@@ -86,7 +87,8 @@
             <template v-for="(col, cIdx) in columns" :key="col.key">
               <td v-if="col.visible"
                 :key="col.key"
-                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx, 'prior-val': row.isPrior, 'freeze-col': col.freeze }""
+                class="w-40"
+                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx, 'prior-val': row.isPrior, 'xfreeze-col': col.freeze }""
                 :style="row.isPrior ? { opacity: 0.65, backgroundColor: 'var(--btn-bg)' } : {}"
                 @click="setActive(rIdx, cIdx)">
                 {{ row[col.key] }}
