@@ -4,3 +4,25 @@
 @import "tailwindcss";
 
 /* Custom app styles can still be written in App.vue */
+
+:root {
+  --bg-primary: #ffffff;
+  --text-primary: #000000;
+  --border-color: #333333;
+  --accent: #2563eb;
+  --cell-bg: #ffffff;
+  --keypad-bg: #e5e7eb;
+  --btn-bg: #f3f4f6;
+  --header-bg: #ffffff;
+}
+
+.dark-mode {
+  --bg-primary: #000000;
+  --text-primary: #ffffff;
+  --border-color: #444444;
+  --accent: #3b82f6;
+  --cell-bg: #1a1a1a;
+  --keypad-bg: #111111;
+  --btn-bg: #222222;
+  --header-bg: #000000;
+}

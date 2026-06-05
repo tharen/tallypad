@@ -1,17 +1,25 @@
 import Dexie, { Table } from 'dexie';
 
+const objectidFieldName = 'OBJECTID';
+const globalidFieldName = 'GlobalID';
+const localGuidFieldName = 'guid';
+
 // --- Editor Tracking Interface ---
-export interface EsriEditorTracking {
+export interface EsriTableBase {
+  // Fields managed by AGOL/Portal
+  OBJECTID?: number;
+  GlobalID?: string;
   created_user?: string;
-  created_date?: number; // Stored as Unix epoch timestamp for easy sorting/syncing
+  created_date?: number;
   last_edited_user?: string;
   last_edited_date?: number;
 }
 
-// --- 1. Plots Interface ---
-export interface IPlot extends EsriEditorTracking {
-  objectid?: number;         // Optional because Dexie can auto-increment this on add
-  globalid: string;          // Primary Key (UUID string)
+// NOTE: Using local GUIDs because geoprocessing and bulk edits will often overwrite the ESRI GlobalID
+// --- Plots Interface ---
+export interface IPlot extends EsriTableBase {
+  Shape: any; // GeoJSON
+  guid: string;  // Local GUID
   plotid: string;
   established?: number;       // Timestamp
   latitude?: number;
@@ -20,11 +28,27 @@ export interface IPlot extends EsriEditorTracking {
   remarks?: string;
 }
 
-// --- 2. Plot Visits Interface ---
-export interface IPlotVisit extends EsriEditorTracking {
-  objectid?: number;
-  globalid: string;          // Primary Key
-  plot_globalid: string;     // Foreign Key -> Plots.globalid
+// --- Collected Plot GPS Locations ---
+export interface ILocation extends EsriTableBase {
+  guid: string; // Local GUID
+  plot_guid: string;   // Foreign Key -> IPlots.plot_guid
+  latitude: number;
+  longitude: number;
+  time: number;
+  model: string;
+  fix: number;
+  sat: number;
+  hdop: number;
+  vdop: number;
+  pdop: number;
+  ageofdgpsd: number;
+  remarks: string;
+}
+
+// --- Plot Visits Interface ---
+export interface IPlotVisit extends EsriTableBase {
+  guid: string;     // Local GUID
+  plot_guid: string;     // Foreign Key -> Plots.globalid
   measurement_date: number;  // Timestamp
   visit_number: number;
   status?: string;
@@ -32,11 +56,10 @@ export interface IPlotVisit extends EsriEditorTracking {
   remarks?: string;
 }
 
-// --- 3. Trees Interface ---
-export interface ITree extends EsriEditorTracking {
-  objectid?: number;
-  globalid: string;          // Primary Key
-  plot_globalid: string;     // Foreign Key -> Plots.globalid
+// --- Trees Interface ---
+export interface ITree extends EsriTableBase {
+  guid: string;      // Local GUID
+  plot_guid: string;     // Foreign Key -> Plots.globalid
   tree_num: number;
   sp: string;
   az?: number;
@@ -46,12 +69,11 @@ export interface ITree extends EsriEditorTracking {
   remarks?: string;
 }
 
-// --- 4. Tree Measurements Interface ---
-export interface ITreeMeasurement extends EsriEditorTracking {
-  objectid?: number;
-  globalid: string;          // Primary Key
-  tree_globalid: string;     // Foreign Key -> Trees.globalid
-  visit_globalid: string;    // Foreign Key -> Plot_Visits.globalid
+// --- Tree Measurements Interface ---
+export interface ITreeMeasurement extends EsriTableBase {
+  guid: string; // Local GUID
+  tree_guid: string;     // Foreign Key -> Trees.globalid
+  visit_guid: string;    // Foreign Key -> Plot_Visits.globalid
   gp: string;
   gt: number;
   dbh: number;
@@ -79,11 +101,10 @@ export interface ITreeMeasurement extends EsriEditorTracking {
   remarks?: string;
 }
 
-// --- 5. Edits Tracking ---
-export interface IEdit extends EsriEditorTracking {
-  globalid: string;
+// --- Edits Tracking ---
+export interface IEdit extends EsriTableBase {
   table_name: string;
-  record_globalid: string; // Typically the tree_globalid
+  record_guid: string; // Typically the tree.guid
   field_name: string;
   old_value: string;
   new_value: string;
@@ -91,12 +112,23 @@ export interface IEdit extends EsriEditorTracking {
   edit_date: number;
 }
 
+// --- Lookup Values ---
+export interface ILookups extends EsriTableBase {
+  guid: string;
+  attribute: string;
+  code: string;
+  value: string;
+  description: string;
+}
+
 export class TallypadDB extends Dexie {
   // Define Table types using the interfaces
   plots!: Table<IPlot, string>; // string denotes the type of the Primary Key (globalid)
   plotVisits!: Table<IPlotVisit, string>;
-  trees!: Table<ITree, string>;
+  plotLocations!: Table<ILocation, string>;
+  plotTrees!: Table<ITree, string>;
   treeMeasurements!: Table<ITreeMeasurement, string>;
+  lookups!: Table<ILookups, string>;
   edits!: Table<IEdit, string>;
 
   constructor() {
@@ -104,18 +136,14 @@ export class TallypadDB extends Dexie {
 
     // Define tables and indexes
     // Syntax: 'primaryKey, index1, index2, ...'
-    // ++objectid can be used if you want Dexie to auto-increment, 
-    // but since Esri relies on globalid, we use globalid as the primary key.
-    this.version(2).stores({
-      plots: 'globalid, plotid',
-      plotVisits: 'globalid, plot_globalid, measurement_date',
-      trees: 'globalid, plot_globalid, tree_num',
-      treeMeasurements: 'globalid, tree_globalid, visit_globalid',
-      edits: 'globalid, record_globalid'
-    });
-
-    this.version(3).stores({
-      edits: 'globalid, created_user, created_date, last_edited_user, last_edited_date',
+    this.version(1).stores({
+      plots: `${localGuidFieldName}, plotid`,
+      plotVisits: `${localGuidFieldName}, plot_guid, measurement_date`,
+      plotLocations: `${localGuidFieldName}, plot_guid, time`,
+      plotTrees: `${localGuidFieldName}, plot_guid, tree_num`,
+      treeMeasurements: `${localGuidFieldName}, tree_guid, visit_guid`,
+      lookups: `${localGuidFieldName}, attribute, code`,
+      edits: `${localGuidFieldName}, record_guid, edit_date`
     });
   }
 }

@@ -80,8 +80,8 @@
             </div>
             <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar mt-4">
               <button 
-                v-for="visit in plot.visits" 
-                :key="visit.globalid"
+                v-for="visit in plot.visits"
+                :key="visit.guid"
                 @click.stop="selectVisit(plot, visit)"
                 class="visit-chip">
                 V{{ visit.visit_number }}
@@ -152,16 +152,16 @@ const closeMenu = () => {
 const selectVisit = async (plot: IPlot, visit: IPlotVisit) => {
   closeMenu();
   const [trees, measurements] = await Promise.all([
-    db.trees.where('plot_globalid').equals(plot.globalid).toArray(),
-    db.treeMeasurements.where('visit_globalid').equals(visit.globalid).toArray(),
+    db.plotTrees.where('plot_guid').equals(plot.guid).toArray(),
+    db.treeMeasurements.where('visit_guid').equals(visit.guid).toArray(),
   ]);
   store.goToTrees(plot, visit, trees, measurements);
 };
 
 const addNewVisit = async (plot: IPlotWithVisits) => {
   const newVisit: IPlotVisit = {
-    globalid: crypto.randomUUID(),
-    plot_globalid: plot.globalid,
+    guid: crypto.randomUUID(),
+    plot_guid: plot.guid,
     measurement_date: Date.now(),
     // visit_number: plot.visits.length + 1,
     visit_number: plot.visits.length === 0 ? 1 : Math.max(...plot.visits.map(v => v.visit_number)) + 1,
@@ -170,8 +170,8 @@ const addNewVisit = async (plot: IPlotWithVisits) => {
   await db.plotVisits.add(newVisit);
   await loadPlots();
   
-  const updatedPlot = plots.value.find(p => p.globalid === plot.globalid);
-  const visit = updatedPlot?.visits.find(v => v.globalid === newVisit.globalid);
+  const updatedPlot = plots.value.find(p => p.guid === plot.guid);
+  const visit = updatedPlot?.visits.find(v => v.guid === newVisit.guid);
   if (updatedPlot && visit) {
     await selectVisit(updatedPlot, visit);
   }
@@ -183,8 +183,10 @@ const addNewPlot = () => {
   if (!plotid?.trim()) return;
 
   const newPlot: IPlot = {
-    globalid: crypto.randomUUID(),
+    guid: crypto.randomUUID(),
     plotid: plotid.trim(),
+    // FIXME: Default point to current GPS
+    Shape: 'POINT (0 0)'
   };
 
   db.plots.add(newPlot).then(() => {
@@ -197,16 +199,17 @@ const loadPlots = async () => {
   plots.value = await Promise.all(
     allPlots.map(async (plot) => {
       const visits = await db.plotVisits
-        .where('plot_globalid')
-        .equals(plot.globalid)
+        .where('plot_guid')
+        .equals(plot.guid)
         .sortBy('measurement_date');
 
       let latestTreeCount = 0;
       if (visits.length > 0) {
+        // FIXME: Get tree count from the last completed visit
         const latestVisit = visits[0];
         latestTreeCount = await db.treeMeasurements
-          .where('visit_globalid')
-          .equals(latestVisit.globalid)
+          .where('visit_guid')
+          .equals(latestVisit.guid)
           .count();
       }
 
@@ -263,7 +266,7 @@ onMounted(() => {
             console.warn("Background refresh failed. Manual login may be required.");
           }
         });
-    }
+      }
     }, 60000);
     
     onUnmounted(() => clearInterval(refreshInterval));
@@ -277,8 +280,8 @@ onMounted(() => {
   db.plots.count().then((count) => {
     if (count === 0) {
       const samplePlots: IPlot[] = [
-        { globalid: crypto.randomUUID(), plotid: '28XJPQ21' },
-        { globalid: crypto.randomUUID(), plotid: '32SFYJ40' },
+        { guid: crypto.randomUUID(), plotid: '28XJPQ21', Shape: 'POINT (0 0)' },
+        { guid: crypto.randomUUID(), plotid: '32SFYJ40', Shape: 'POINT (0 0)' },
       ];
       db.plots.bulkAdd(samplePlots).then(() => {
         loadPlots();
@@ -287,6 +290,14 @@ onMounted(() => {
   });
 
   document.addEventListener('click', closeMenu);
+
+  store.checkDeviceType();
+  window.addEventListener('resize', store.checkDeviceType);
+
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', store.checkDeviceType);
 });
 
 onBeforeUnmount(() => {

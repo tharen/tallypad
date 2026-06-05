@@ -2,6 +2,7 @@ import { ref, computed } from 'vue';
 import { ITree, IPlot, IPlotVisit, ITreeMeasurement } from '../db';
 
 export interface AppState {
+  isMobile: boolean;
   currentView: 'plots' | 'trees' | 'setup';
   selectedPlot: IPlot | null;
   selectedVisit: IPlotVisit | null;
@@ -22,6 +23,7 @@ const STORAGE_KEY_EXPIRY = 'tallypad_expiry';
 const STORAGE_KEY_DARK_MODE = 'tallypad_dark_mode';
 
 const state = ref<AppState>({
+  isMobile: true,
   currentView: 'plots',
   selectedPlot: null,
   selectedVisit: null,
@@ -56,11 +58,24 @@ export const useAppStore = () => {
     state.value.isDarkMode = !state.value.isDarkMode;
   };
 
+  const checkDeviceType = () => {
+    if (typeof window === "undefined") {
+      state.value.isMobile = false;
+    } else {
+      const ua = window.navigator.userAgent;
+  
+      // Checks for "Mobi" anywhere in the User Agent string
+      state.value.isMobile = /Mobi/i.test(ua);
+    }
+
+  };
+
   const currentView = computed(() => state.value.currentView);
   const selectedPlot = computed(() => state.value.selectedPlot);
   const selectedVisit = computed(() => state.value.selectedVisit);
   const trees = computed(() => state.value.trees);
   const measurements = computed(() => state.value.measurements);
+  const isMobile = computed(() => state.value.isMobile);
   const isDarkMode = computed(() => state.value.isDarkMode);
   const esriToken = computed(() => state.value.esriToken);
   const esriRefreshToken = computed(() => state.value.esriRefreshToken);
@@ -135,6 +150,8 @@ export const useAppStore = () => {
     goToPlots,
     goToSetup,
     toggleDarkMode,
+    checkDeviceType,
+    isMobile,
     currentView,
     selectedPlot,
     selectedVisit,

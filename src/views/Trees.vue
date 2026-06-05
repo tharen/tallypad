@@ -3,6 +3,7 @@
 // TODO: Add all measurement fields
 // TODO: Add horizontal scrolling with fixed tree ID columns
 // TODO: Sort by azimuth
+// TODO: Add stay-awake to the screen lock
 
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
@@ -41,7 +42,7 @@
         </div>
       </div>
       <div class="relative">
-        <button v-if="!isLocked" @click="requestWakeLock" class="mr-2 text-xl">
+        <button v-if="store.isMobile.value && !isLocked" @click="requestWakeLock" class="mr-2 text-xl">
           <span class="menu-icon">🔒</span>
         </button>
         <button @click="store.toggleDarkMode()" class="mr-4 text-xl">
@@ -104,7 +105,7 @@
         <button @click="addRow" class="nav-btn !text-green-600">＋</button>
         <button @click="removeRow" class="nav-btn !text-red-600">－</button>
       </div>
-      <div class="grid grid-cols-4 gap-0">
+      <div v-if="store.isMobile.value" class="grid grid-cols-4 gap-0">
         <button @click="move('up')" class="nav-btn !border-0 !text-4xl" :style="{backgroundColor: 'var(--keypad-bg)'}">⬆️</button>
         <button @click="move('down')" class="nav-btn !border-0 !text-4xl":style="{backgroundColor: 'var(--keypad-bg)'}">⬇️</button>
         <button @click="move('left')" class="nav-btn !border-0 !text-4xl" :style="{backgroundColor: 'var(--keypad-bg)'}">⬅️</button>
@@ -112,7 +113,7 @@
       </div>
     </div>
 
-    <div class="p-2 h-[240px]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
+    <div v-if="store.isMobile.value" class="p-2 h-[40dvh]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
       <div v-if="activeColConfig.type === 'number'" class="grid grid-cols-4 gap-2 h-full">
         <button v-for="n in [7, 8, 9]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
         <button @click="pressKey('back')" class="keypad-btn !bg-orange-500 !text-white">⌫</button>
@@ -155,10 +156,10 @@ type Column = {
 };
 
 type RowKey =
-  | 'globalid'
-  | 'plot_globalid'
-  | 'tree_globalid'
-  | 'measurement_globalid'
+  | 'visit_guid'
+  | 'plot_guid'
+  | 'tree_guid'
+  | 'measurement_guid'
   | 'visit_number'
   | 'tree_num'
   | 'az'
@@ -207,8 +208,8 @@ const lastCellValue = ref<any>(null);
 const lastCellRef = ref<{ r: number, c: number } | null>(null);
 
 const columns: Column[] = [
-  { label: 'Global ID', key: 'globalid', type: 'string', visible: false , freeze: false },
-  { label: 'Plot ID', key: 'plot_globalid', type: 'string', visible: false, freeze: false},
+  // { label: 'MSMT ID', key: 'measurement_guid', type: 'string', visible: false , freeze: false },
+  // { label: 'Plot ID', key: 'plot_guid', type: 'string', visible: false, freeze: false},
   { label: 'V', key: 'visit_number', type: 'number', visible: true, freeze: false},
   { label: 'Tr', key: 'tree_num', type: 'number', visible: true, freeze: true},
   { label: 'AZ', key: 'az', type: 'number', visible: true, freeze: true},
@@ -237,18 +238,18 @@ const columns: Column[] = [
   { label: 'BT', key: 'bt', type: 'number', visible: true },
   { label: '5yr', key: 'fiveyr', type: 'number', visible: true },
   { label: '10yr', key: 'tenyr', type: 'number', visible: true },
-  { label: 'Ref', key: 'ref', type: 'string', visible: true },
-  { label: 'SD', key: 'sd', type: 'string', visible: true },
+  { label: 'Ref', key: 'ref', type: 'number', visible: true },
+  { label: 'SD', key: 'sd', type: 'number', visible: true },
   { label: 'Remarks', key: 'remarks', type: 'string', visible: true },
 ];
 
 const rows = ref<Row[]>([]);
 
 const treeAndMeasToRow = (tree: ITree, meas: ITreeMeasurement | undefined, visitNum: number, isPrior: boolean, isNew: boolean): Row => ({
-  globalid: tree.globalid,
-  plot_globalid: tree.plot_globalid,
-  tree_globalid: tree.globalid,
-  measurement_globalid: meas?.globalid || crypto.randomUUID(),
+  visit_guid: meas?.visit_guid,
+  plot_guid: tree.plot_guid,
+  tree_guid: tree.guid,
+  measurement_guid: meas?.guid || crypto.randomUUID(),
   visit_number: visitNum,
   tree_num: tree.tree_num,
   az: tree.az || 0,
@@ -318,9 +319,8 @@ const commitEditCheck = async () => {
     } else {
       // Log Edit
       await db.edits.add({
-        globalid: crypto.randomUUID(),
-        table_name: 'trees',
-        record_globalid: row.tree_globalid,
+        table_name: 'tree',
+        record_guid: row.tree_guid,
         field_name: colKey,
         old_value: String(oldVal),
         new_value: String(currentVal),
@@ -336,31 +336,32 @@ const commitEditCheck = async () => {
 const loadRows = async () => {
   if (!store.selectedPlot.value || !store.selectedVisit.value) return;
 
-  const plotId = store.selectedPlot.value.globalid;
+  const plotGUID = store.selectedPlot.value.guid;
   const currentVisit = store.selectedVisit.value;
 
-  // Find prior visit
+  // Find prior visit as most recent prior to current visit
   const priorVisit = await db.plotVisits
-    .where('plot_globalid')
-    .equals(plotId)
+    .where('plot_guid')
+    .equals(plotGUID)
     .filter(v => v.measurement_date < currentVisit.measurement_date)
     .reverse()
     .sortBy('measurement_date')
     .then(list => list[0]);
 
   const [trees, currentMeas, priorMeas] = await Promise.all([
-    db.trees.where('plot_globalid').equals(plotId).sortBy('az'),
-    db.treeMeasurements.where('visit_globalid').equals(currentVisit.globalid).toArray(),
-    priorVisit ? db.treeMeasurements.where('visit_globalid').equals(priorVisit.globalid).toArray() : Promise.resolve([])
+    db.plotTrees.where('plot_guid').equals(plotGUID).sortBy('az'),
+    db.treeMeasurements.where('visit_guid').equals(currentVisit.guid).toArray(),
+    priorVisit ? db.treeMeasurements.where('visit_guid').equals(priorVisit.guid).toArray() : Promise.resolve([])
   ]);
 
+  // Rows to display include prior measurements interleaved with current measurements or empty rows
   const allRows: Row[] = [];
   trees.forEach(tree => {
-    const pm = priorVisit ? priorMeas.find(m => m.tree_globalid === tree.globalid) : undefined;
+    const pm = priorVisit ? priorMeas.find(m => m.tree_guid === tree.guid) : undefined;
     if (priorVisit && pm) {
       allRows.push(treeAndMeasToRow(tree, pm, priorVisit.visit_number, true, false));
     }
-    const cm = currentMeas.find(m => m.tree_globalid === tree.globalid);
+    const cm = currentMeas.find(m => m.tree_guid === tree.guid);
     allRows.push(treeAndMeasToRow(tree, cm, currentVisit.visit_number, false, !pm));
   });
 
@@ -382,8 +383,8 @@ const saveRow = async (row: Row) => {
   if (row.isPrior) return;
 
   const tree: ITree = {
-    globalid: row.tree_globalid,
-    plot_globalid: row.plot_globalid,
+    guid: row.tree_guid,
+    plot_guid: row.plot_guid,
     tree_num: Number(row.tree_num),
     sp: row.sp,
     az: Number(row.az),
@@ -392,9 +393,9 @@ const saveRow = async (row: Row) => {
   };
 
   const measurement: ITreeMeasurement = {
-    globalid: row.measurement_globalid,
-    tree_globalid: row.tree_globalid,
-    visit_globalid: store.selectedVisit.value!.globalid,
+    guid: row.measurement_guid,
+    tree_guid: row.tree_guid,
+    visit_guid: store.selectedVisit.value!.guid,
     dbh: Number(row.dbh),
     gp: row.gp,
     gt: Number(row.gt),
@@ -411,17 +412,18 @@ const saveRow = async (row: Row) => {
   };
 
   await Promise.all([
-    db.trees.put(tree),
+    db.plotTrees.put(tree),
     db.treeMeasurements.put(measurement)
   ]);
 };
 
 // Delete a row from database
+// TODO: Ensure deleting trees is on allowed for incomplete visits
 const deleteRow = async (row: Row) => {
-  if (row.tree_globalid) {
+  if (row.tree_guid) {
     await Promise.all([
-      db.trees.delete(row.tree_globalid),
-      db.treeMeasurements.where('tree_globalid').equals(row.tree_globalid).delete()
+      db.plotTrees.delete(row.tree_guid),
+      db.treeMeasurements.where('tree_globalid').equals(row.tree_guid).delete()
     ]);
   }
 };
@@ -520,8 +522,8 @@ const addRow = async () => {
     : 1;
 
   const newTree: ITree = {
-    globalid: crypto.randomUUID(),
-    plot_globalid: store.selectedPlot.value.globalid,
+    guid: crypto.randomUUID(),
+    plot_guid: store.selectedPlot.value.guid,
     tree_num: nextTreeNum,
     sp: '',
     az: 0,
@@ -545,6 +547,7 @@ const addRow = async () => {
   saveRow(newRow);
 };
 
+// TODO: Use visit status not complete to ensure allowed deletion rather than row status
 const removeRow = async () => {
   if (rows.value.length > 1) {
     const rowToDelete = rows.value[activeRow.value];
@@ -686,28 +689,6 @@ onUnmounted(async () => {
 </script>
 
 <style>
-:root {
-  --bg-primary: #ffffff;
-  --text-primary: #000000;
-  --border-color: #333333;
-  --accent: #2563eb;
-  --cell-bg: #ffffff;
-  --keypad-bg: #e5e7eb;
-  --btn-bg: #f3f4f6;
-  --header-bg: #ffffff;
-}
-
-.dark-mode {
-  --bg-primary: #000000;
-  --text-primary: #ffffff;
-  --border-color: #444444;
-  --accent: #3b82f6;
-  --cell-bg: #1a1a1a;
-  --keypad-bg: #111111;
-  --btn-bg: #222222;
-  --header-bg: #000000;
-}
-
 #app-inner {
   background-color: var(--bg-primary);
   color: var(--text-primary);
@@ -778,7 +759,7 @@ td {
   justify-content: center;
   font-weight: bold;
   font-size: 1.25rem;
-  height: 50px;
+  /* height: 2.5rem; */
   box-shadow: 0 2px 0 var(--border-color);
 }
 
