@@ -10,7 +10,7 @@
       <!-- Plots List View -->
       <header class="p-4 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
         <div>
-          <h1 class="text-lg font-bold">Project Plots</h1>
+          <h1 class="text-lg font-bold">Project Plots (n={{ filteredPlots.length }})</h1>
           <input
             v-model="searchQuery"
             type="text"
@@ -36,11 +36,6 @@
               <span>Setup / Sync</span>
             </button>
 
-            <button class="menu-item" @click="wipeDB()">
-              <span class="menu-icon">ℹ️</span>
-              <span>Wipe Database</span>
-            </button>
-            
             <button class="menu-item">
               <span class="menu-icon">ℹ️</span>
               <span>About</span>
@@ -155,6 +150,7 @@ const selectVisit = async (plot: IPlot, visit: IPlotVisit) => {
     db.plotTrees.where('plot_guid').equals(plot.guid).toArray(),
     db.treeMeasurements.where('visit_guid').equals(visit.guid).toArray(),
   ]);
+  console.log('N Trees:', trees.length, 'Plot GUID:', plot.guid, 'Visit GUID:', visit.guid);
   store.goToTrees(plot, visit, trees, measurements);
 };
 
@@ -165,6 +161,7 @@ const addNewVisit = async (plot: IPlotWithVisits) => {
     measurement_date: Date.now(),
     // visit_number: plot.visits.length + 1,
     visit_number: plot.visits.length === 0 ? 1 : Math.max(...plot.visits.map(v => v.visit_number)) + 1,
+    status: 'Not Completed'
   };
 
   await db.plotVisits.add(newVisit);
@@ -276,18 +273,18 @@ onMounted(() => {
     store.logoutEsri();
   }
 
-  // Add some sample data if the database is empty
-  db.plots.count().then((count) => {
-    if (count === 0) {
-      const samplePlots: IPlot[] = [
-        { guid: crypto.randomUUID(), plotid: '28XJPQ21', Shape: 'POINT (0 0)' },
-        { guid: crypto.randomUUID(), plotid: '32SFYJ40', Shape: 'POINT (0 0)' },
-      ];
-      db.plots.bulkAdd(samplePlots).then(() => {
-        loadPlots();
-      });
-    }
-  });
+  // // Add some sample data if the database is empty
+  // db.plots.count().then((count) => {
+  //   if (count === 0) {
+  //     const samplePlots: IPlot[] = [
+  //       { guid: crypto.randomUUID(), plotid: '28XJPQ21', Shape: 'POINT (0 0)' },
+  //       { guid: crypto.randomUUID(), plotid: '32SFYJ40', Shape: 'POINT (0 0)' },
+  //     ];
+  //     db.plots.bulkAdd(samplePlots).then(() => {
+  //       loadPlots();
+  //     });
+  //   }
+  // });
 
   document.addEventListener('click', closeMenu);
 
@@ -303,11 +300,6 @@ onUnmounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', closeMenu);
 });
-
-const wipeDB = async () => {
-  renewDatabase();
-  await loadPlots();
-};
 
 </script>
 

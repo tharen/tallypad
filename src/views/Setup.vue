@@ -10,7 +10,19 @@
 
     <div class="flex-1 p-6 space-y-6 overflow-y-auto">
       <section class="space-y-4">
-        <h2 class="text-lg font-bold">Authentication</h2>
+        <div class="flex flex-col gap-2">
+          <label class="text-xs uppercase opacity-60">User Name</label>
+          <input 
+            v-model="store.userName.value" 
+            placeholder="Enter name..." 
+            class="p-3 bg-[var(--cell-bg)] border border-[var(--border-color)] rounded-md focus:border-[var(--accent)] outline-none"
+            :disabled="store.esriToken.value !== null"
+          />
+        </div>
+      </section>
+
+      <section class="space-y-4">
+        <h2 class="text-lg font-bold">Syncronization</h2>
         
         <div v-if="!store.esriToken.value" class="p-4 rounded-lg bg-[var(--btn-bg)] border border-[var(--border-color)]">
           <p class="text-sm mb-4 opacity-80">Log in using your ESRI ArcGIS Online credentials.</p>
@@ -33,26 +45,32 @@
             Logout
           </button>
         </div>
+        <button v-if="store.esriToken.value" @click="syncWithEsri()" class="w-full py-2 border border-red-500 text-red-500 rounded-md font-bold">
+          Sync Plots
+        </button>
       </section>
 
       <section class="space-y-4">
-        <h2 class="text-lg font-bold">Profile Settings</h2>
-        <div class="flex flex-col gap-2">
-          <label class="text-xs uppercase opacity-60">User Name</label>
-          <input 
-            v-model="store.userName.value" 
-            placeholder="Enter name..." 
-            class="p-3 bg-[var(--cell-bg)] border border-[var(--border-color)] rounded-md focus:border-[var(--accent)] outline-none"
-            :disabled="store.esriToken.value !== null"
-          />
-        </div>
+        <h2 class="text-lg font-bold">Database</h2>
+        <button @click="exportDB()" class="w-full py-2 border rounded-md font-bold">
+          Export JSON
+        </button>
+        <button @click="importDB()" class="w-full py-2 border rounded-md font-bold">
+          Import JSON
+        </button>
+        <button @click="wipeDB()" class="w-full py-2 border border-red-500 text-red-500 rounded-md font-bold">
+          Wipe Database
+        </button>
       </section>
+
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
   import { useAppStore } from '../stores/appStore';
+  import { syncAll } from '../sync_agol';
+  import { renewDatabase, exportDatabase, importDatabase} from '../db';
 
   const store = useAppStore();
 
@@ -73,4 +91,38 @@
     const authUrl = `https://www.arcgis.com/sharing/rest/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&expiration=20160&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code_challenge=${verifier}&code_challenge_method=plain`;
     window.location.href = authUrl;
   };
+
+  const syncWithEsri = async () => {
+    syncAll(store);
+    // window.location.reload();
+  };
+
+  const exportDB = async () => {
+    exportDatabase();
+  };
+
+  const importDB = async () => {
+    if (confirm('Importing will replace all existing data. Are you sure you want to import?')) {
+      if (confirm('Click OK to confirm import.')) {
+        importDatabase();
+      } else {
+        alert('Import canceled.');
+      }
+    }
+    
+  }
+
+  const wipeDB = async () => {
+    // prompt user to confirm
+    if (confirm('This will erase any unsaved, unsynced data. Are you sure you want to wipe the database?')) {
+      if (confirm('Click OK to wipe the database.')) {
+        renewDatabase();
+        // await loadPlots();
+        alert('Database wiped successfully!');
+      } else {
+        alert('Database wipe canceled.');
+      }
+    }
+  };
+
 </script>

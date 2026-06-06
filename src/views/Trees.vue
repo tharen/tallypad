@@ -89,7 +89,7 @@
               <td v-if="col.visible"
                 :key="col.key"
                 class="w-40"
-                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx, 'prior-val': row.isPrior, 'xfreeze-col': col.freeze }""
+                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx, 'prior-val': row.isPrior, 'xfreeze-col': col.freeze }"
                 :style="row.isPrior ? { opacity: 0.65, backgroundColor: 'var(--btn-bg)' } : {}"
                 @click="setActive(rIdx, cIdx)">
                 {{ row[col.key] }}
@@ -114,7 +114,7 @@
     </div>
 
     <div v-if="store.isMobile.value" class="p-2 h-[40dvh]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
-      <div v-if="activeColConfig.type === 'number'" class="grid grid-cols-4 gap-2 h-full">
+      <div v-if="activeColConfig?.type === 'number'" class="grid grid-cols-4 gap-2 h-full">
         <button v-for="n in [7, 8, 9]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
         <button @click="pressKey('back')" class="keypad-btn !bg-orange-500 !text-white">⌫</button>
 
@@ -127,7 +127,7 @@
         <button @click="pressKey('.')" class="keypad-btn">.</button>
       </div>
 
-      <div v-else-if="activeColConfig.type === 'select'" class="grid grid-cols-3 gap-3 overflow-y-auto h-full p-1">
+      <div v-else-if="activeColConfig?.type === 'select'" class="grid grid-cols-3 gap-3 overflow-y-auto h-full p-1">
         <button
           v-for="opt in activeColConfig.options"
           :key="opt"
@@ -164,10 +164,10 @@ type RowKey =
   | 'tree_num'
   | 'az'
   | 'hd'
-  | 'gp'
   | 'sp'
-  | 'gt'
   | 'dbh'
+  | 'gp'
+  | 'gt'
   | 's'
   | 'fc'
   | 'ht'
@@ -207,23 +207,26 @@ const tableBox = ref<HTMLDivElement | null>(null);
 const lastCellValue = ref<any>(null);
 const lastCellRef = ref<{ r: number, c: number } | null>(null);
 
-const columns: Column[] = [
+const spOptions = ref<string[]>([]);
+
+const columns = computed<Column[]>((): Column[] => [
   // { label: 'MSMT ID', key: 'measurement_guid', type: 'string', visible: false , freeze: false },
   // { label: 'Plot ID', key: 'plot_guid', type: 'string', visible: false, freeze: false},
   { label: 'V', key: 'visit_number', type: 'number', visible: true, freeze: false},
   { label: 'Tr', key: 'tree_num', type: 'number', visible: true, freeze: true},
   { label: 'AZ', key: 'az', type: 'number', visible: true, freeze: true},
   { label: 'HD', key: 'hd', type: 'number', visible: true, freeze: true},
-  { label: 'SP', key: 'sp', type: 'select', options: ['DF', 'WH', 'RC', 'SS', 'RA', 'BM', 'NF', 'SF', 'WP', 'PP', 'SP', 'JP', 'GC', 'TO', 'CL', 'OC', 'OH', 'NA'], visible: true, freeze: true},
+  { label: 'SP', key: 'sp', type: 'select', options: spOptions.value, visible: true, freeze: true},
   { label: 'DBH', key: 'dbh', type: 'number', visible: true },
   { label: 'GP', key: 'gp', type: 'select', visible: true, options: ['..','SN','DD']},
   { label: 'GT', key: 'gt', type: 'number', visible: true },
+  { label: 'S', key: 's', type: 'select', options: [0,1,2,3,4,5,6,7,8,9], visible: true },
+  { label: 'FC', key: 'fc', type: 'number', visible: true },
   { label: 'HT', key: 'ht', type: 'number', visible: true },
-  { label: 'S', key: 's', type: 'select', options: [5,6,7,8], visible: true },
   { label: 'TD', key: 'upstd', type: 'number', visible: true },
   { label: 'THT', key: 'upstht', type: 'number', visible: true },
   { label: 'CR', key: 'cr', type: 'number', visible: true },
-  { label: 'CC', key: 'cc', type: 'select', visible: true, options: [3,2,1] },
+  { label: 'CC', key: 'cc', type: 'select', visible: true, options: [1,2,3,4,5] },
   { label: 'D1', key: 'd1', type: 'number', visible: true },
   { label: 'S1', key: 's1', type: 'number', visible: true },
   { label: 'D2', key: 'd2', type: 'number', visible: true },
@@ -233,7 +236,7 @@ const columns: Column[] = [
   { label: 'Def1', key: 'def1', type: 'number', visible: true },
   { label: 'Def2', key: 'def2', type: 'number', visible: true },
   { label: 'Def3', key: 'def3', type: 'number', visible: true },
-  { label: 'CND', key: 'c', type: 'select', options: ['L', 'D', 'C', 'G'], visible: true },
+  { label: 'CND', key: 'c', type: 'select', options: [1,2,3,4,5], visible: true },
   { label: 'Age', key: 'age', type: 'number', visible: true },
   { label: 'BT', key: 'bt', type: 'number', visible: true },
   { label: '5yr', key: 'fiveyr', type: 'number', visible: true },
@@ -241,7 +244,7 @@ const columns: Column[] = [
   { label: 'Ref', key: 'ref', type: 'number', visible: true },
   { label: 'SD', key: 'sd', type: 'number', visible: true },
   { label: 'Remarks', key: 'remarks', type: 'string', visible: true },
-];
+]);
 
 const rows = ref<Row[]>([]);
 
@@ -289,7 +292,7 @@ const treeAndMeasToRow = (tree: ITree, meas: ITreeMeasurement | undefined, visit
 const captureSnapshot = () => {
   if (rows.value.length === 0) return;
   lastCellRef.value = { r: activeRow.value, c: activeCol.value };
-  const colKey = columns[activeCol.value].key;
+  const colKey = columns.value[activeCol.value].key;
   lastCellValue.value = rows.value[activeRow.value][colKey];
 };
 
@@ -300,7 +303,7 @@ const commitEditCheck = async () => {
   const row = rows.value[r];
   if (!row || row.isPrior) return true;
 
-  const col = columns[c];
+  const col = columns.value[c];
   const colKey = col.key;
   const currentVal = row[colKey];
   const oldVal = lastCellValue.value;
@@ -319,6 +322,7 @@ const commitEditCheck = async () => {
     } else {
       // Log Edit
       await db.edits.add({
+        guid: crypto.randomUUID(),
         table_name: 'tree',
         record_guid: row.tree_guid,
         field_name: colKey,
@@ -428,7 +432,7 @@ const deleteRow = async (row: Row) => {
   }
 };
 
-const activeColConfig = computed(() => columns[activeCol.value]);
+const activeColConfig = computed(() => columns.value[activeCol.value]);
 
 const scrollActiveIntoView = async () => {
   await Promise.resolve();
@@ -478,12 +482,12 @@ const move = async (dir: 'up' | 'down' | 'left' | 'right') => {
     if (r < rows.value.length) activeRow.value = r;
   }
   if (dir === 'left') {
-    const visibleIndices = columns.map((col, i) => col.visible ? i : -1).filter(i => i !== -1);
+    const visibleIndices = columns.value.map((col, i) => col.visible ? i : -1).filter(i => i !== -1);
     const currentIdx = visibleIndices.indexOf(c);
     if (currentIdx > 0) activeCol.value = visibleIndices[currentIdx - 1];
   }
   if (dir === 'right') {
-    const visibleIndices = columns.map((col, i) => col.visible ? i : -1).filter(i => i !== -1);
+    const visibleIndices = columns.value.map((col, i) => col.visible ? i : -1).filter(i => i !== -1);
     const currentIdx = visibleIndices.indexOf(c);
     if (currentIdx < visibleIndices.length - 1) activeCol.value = visibleIndices[currentIdx + 1];
   }
@@ -602,6 +606,10 @@ onMounted(async () => {
   document.addEventListener('click', closeMenu);
 
   // Load tree records from database
+  const spLookup = await db.lookups.where('feature').equals('sp').toArray();
+  spOptions.value = spLookup.map(item => item.code);
+  // console.log(spOptions.value);
+
   await loadRows();
 });
 
@@ -722,7 +730,7 @@ th {
   background: var(--btn-bg);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
-  padding: 8px 2px;
+  padding: 8px 6px;
   font-weight: 800;
   z-index: 10;
 }
@@ -731,7 +739,7 @@ td {
   border: 1px solid var(--border-color);
   padding: 4px;
   text-align: center;
-  height: 44px;
+  height: 40px;
   background: var(--cell-bg);
   color: var(--text-primary);
 }

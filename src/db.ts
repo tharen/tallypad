@@ -22,9 +22,8 @@ export interface IPlot extends EsriTableBase {
   guid: string;  // Local GUID
   plotid: string;
   established?: number;       // Timestamp
-  latitude?: number;
-  longitude?: number;
-  loc_src?: string;
+  planned_latitude?: number;
+  planned_longitude?: number;
   remarks?: string;
 }
 
@@ -97,12 +96,13 @@ export interface ITreeMeasurement extends EsriTableBase {
   upstht?: number;
   upstd?: number;
   fiveyr?: number;
-  tenyr?: string;
+  tenyr?: number;
   remarks?: string;
 }
 
 // --- Edits Tracking ---
 export interface IEdit extends EsriTableBase {
+  guid: string; // Local GUID
   table_name: string;
   record_guid: string; // Typically the tree.guid
   field_name: string;
@@ -115,7 +115,7 @@ export interface IEdit extends EsriTableBase {
 // --- Lookup Values ---
 export interface ILookups extends EsriTableBase {
   guid: string;
-  attribute: string;
+  feature: string;
   code: string;
   value: string;
   description: string;
@@ -142,7 +142,7 @@ export class TallypadDB extends Dexie {
       plotLocations: `${localGuidFieldName}, plot_guid, time`,
       plotTrees: `${localGuidFieldName}, plot_guid, tree_num`,
       treeMeasurements: `${localGuidFieldName}, tree_guid, visit_guid`,
-      lookups: `${localGuidFieldName}, attribute, code`,
+      lookups: `${localGuidFieldName}, feature, code`,
       edits: `${localGuidFieldName}, record_guid, edit_date`
     });
   }
@@ -153,4 +153,66 @@ export const db = new TallypadDB();
 
 export const renewDatabase = () => {
   db.delete({ disableAutoOpen: false });
+  window.location.reload();
+};
+
+/**
+ * Exports all tables in the database to a JSON file and triggers a browser download.
+ */
+export const exportDatabase = async () => {
+  try {
+    const exportData: Record<string, any[]> = {};
+    for (const table of db.tables) {
+      exportData[table.name] = await table.toArray();
+    }
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `tallypad_export_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Export failed:', error);
+    alert('An error occurred during database export.');
+  }
+};
+
+/**
+ * Prompts the user to select a JSON file and imports its contents into the database.
+ * Replaces existing data in matching tables.
+ */
+export const importDatabase = () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json';
+  input.onchange = async (event: Event) => {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const json = JSON.parse(e.target?.result as string);
+        await db.transaction('rw', db.tables, async () => {
+          for (const tableName in json) {
+            const table = db.table(tableName);
+            if (table) {
+              await table.clear();
+              await table.bulkAdd(json[tableName]);
+            }
+          }
+        });
+        alert('Import successful.');
+        window.location.reload();
+      } catch (error) {
+        console.error('Import failed:', error);
+        alert('Failed to import JSON file. Please ensure it is a valid export.');
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+
 };

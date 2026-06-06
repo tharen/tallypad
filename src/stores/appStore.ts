@@ -10,6 +10,7 @@ export interface AppState {
   trees: ITree[];
   measurements: ITreeMeasurement[];
   isDarkMode: boolean;
+  allowAddPlots: boolean;
   userName: string;
   esriToken: string | null;
   esriRefreshToken: string | null;
@@ -21,6 +22,7 @@ const STORAGE_KEY_TOKEN = 'tallypad_token';
 const STORAGE_KEY_REFRESH_TOKEN = 'tallypad_refresh_token';
 const STORAGE_KEY_EXPIRY = 'tallypad_expiry';
 const STORAGE_KEY_DARK_MODE = 'tallypad_dark_mode';
+const STORAGE_KEY_ADD_PLOTS = 'tallypad_add_plots';
 
 const state = ref<AppState>({
   isMobile: true,
@@ -31,6 +33,7 @@ const state = ref<AppState>({
   trees: [],
   measurements: [],
   isDarkMode: localStorage.getItem(STORAGE_KEY_DARK_MODE) === 'true',
+  allowAddPlots: localStorage.getItem(STORAGE_KEY_ADD_PLOTS) === 'true',
   userName: localStorage.getItem(STORAGE_KEY_USER) || '',
   esriToken: localStorage.getItem(STORAGE_KEY_TOKEN),
   esriRefreshToken: localStorage.getItem(STORAGE_KEY_REFRESH_TOKEN),
@@ -56,6 +59,12 @@ export const useAppStore = () => {
 
   const toggleDarkMode = () => {
     state.value.isDarkMode = !state.value.isDarkMode;
+    localStorage.setItem(STORAGE_KEY_DARK_MODE, String(state.value.isDarkMode));
+  };
+
+  const toggleAllowAddPlots = () => {
+    state.value.allowAddPlots = !state.value.allowAddPlots;
+    localStorage.setItem(STORAGE_KEY_ADD_PLOTS, String(state.value.allowAddPlots));
   };
 
   const checkDeviceType = () => {
