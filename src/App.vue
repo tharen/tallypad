@@ -1,8 +1,9 @@
-// TODO: Import-Export to JSON
-// TODO: AGOL feature service sync
+// DONE: Import-Export to JSON
+// DONE: AGOL feature service sync
 // TODO: Add tree count, remarks, lat-lon on the plot card
 // TODO: Add stem map view with tree labels and tap to edit
 // TODO: Add GPS location update
+// TODO: Add edit visits view, pencil icon on plot card opens view with plot info and visits table
 
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">

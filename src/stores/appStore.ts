@@ -73,10 +73,13 @@ export const useAppStore = () => {
     } else {
       const ua = window.navigator.userAgent;
   
-      // Checks for "Mobi" anywhere in the User Agent string
-      state.value.isMobile = /Mobi/i.test(ua);
-    }
+      // Tablets (like Samsung Tab Active) often omit "Mobi" from the User Agent.
+      // We check for mobile platforms and touch support to classify them as "mobile" (field) devices.
+      const isMobilePlatform = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+      const isIPadOS = /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
 
+      state.value.isMobile = isMobilePlatform || isIPadOS;
+    }
   };
 
   const currentView = computed(() => state.value.currentView);
