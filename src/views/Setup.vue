@@ -94,7 +94,7 @@
 
   const syncWithEsri = async () => {
     syncAll(store);
-    window.location.reload();
+    // window.location.reload();
   };
 
   const exportDB = async () => {

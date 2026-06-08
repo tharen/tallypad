@@ -4,6 +4,7 @@
 // TODO: Add stem map view with tree labels and tap to edit
 // TODO: Add GPS location update
 // TODO: Add edit visits view, pencil icon on plot card opens view with plot info and visits table
+// TODO: Add Google Maps navigation URL to plot card
 
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
@@ -12,12 +13,21 @@
       <header class="p-4 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
         <div>
           <h1 class="text-lg font-bold">Project Plots (n={{ filteredPlots.length }})</h1>
+          <div class="flex">
           <input
             v-model="searchQuery"
             type="text"
             placeholder="Filter plot ID..."
             class="text-sm bg-transparent border-b border-[var(--border-color)] focus:border-[var(--accent)] outline-none w-full max-w-[200px] mt-1"
           />
+          <button 
+            v-if="searchQuery" 
+            @click="searchQuery = ''" 
+            class="ml-1 px-1 text-sm opacity-50 hover:opacity-100 transition-opacity"
+          >
+            ✕
+          </button>
+          </div>
         </div>
         <div class="relative">
           <button @click="store.toggleDarkMode()" class="mr-4 text-xl">
@@ -50,10 +60,12 @@
         <div v-if="plots.length === 0" class="flex items-center justify-center h-full text-center">
           <div>
             <p class="text-xl font-bold mb-2">No plots found</p>
-            <p class="opacity-70 mb-4">Add a new project plot to get started</p>
-            <button @click="addNewPlot" class="px-6 py-3 rounded bg-blue-600 text-white font-bold hover:bg-blue-700">
-              ＋ Add Plot
-            </button>
+            <div v-show="store.allowAddPlots">
+              <p class="opacity-70 mb-4">Add a new project plot to get started</p>
+              <button @click="addNewPlot" class="px-6 py-3 rounded bg-blue-600 text-white font-bold hover:bg-blue-700">
+                ＋ Add Plot
+              </button>
+            </div>
           </div>
         </div>
 
@@ -93,7 +105,7 @@
         </div>
         </div>
 
-        <div class="flex justify-center pt-4">
+        <div v-show="store.allowAddPlots" class="flex justify-center pt-4">
           <button @click="addNewPlot" class="nav-btn text-green-600 font-black text-2xl">
             ＋ Add Plot
           </button>

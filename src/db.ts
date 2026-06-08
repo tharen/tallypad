@@ -27,8 +27,8 @@ export interface IPlot extends EsriTableBase {
   remarks?: string;
 }
 
-// --- Collected Plot GPS Locations ---
-export interface ILocation extends EsriTableBase {
+// --- Collected Plot GPS Points ---
+export interface IGpsPoint extends EsriTableBase {
   guid: string; // Local GUID
   plot_guid: string;   // Foreign Key -> IPlots.plot_guid
   latitude: number;
@@ -125,7 +125,7 @@ export class TallypadDB extends Dexie {
   // Define Table types using the interfaces
   plots!: Table<IPlot, string>; // string denotes the type of the Primary Key (globalid)
   plotVisits!: Table<IPlotVisit, string>;
-  plotLocations!: Table<ILocation, string>;
+  plotGpsPoints!: Table<IGpsPoint, string>;
   plotTrees!: Table<ITree, string>;
   treeMeasurements!: Table<ITreeMeasurement, string>;
   lookups!: Table<ILookups, string>;
@@ -139,7 +139,7 @@ export class TallypadDB extends Dexie {
     this.version(1).stores({
       plots: `${localGuidFieldName}, plotid`,
       plotVisits: `${localGuidFieldName}, plot_guid, measurement_date`,
-      plotLocations: `${localGuidFieldName}, plot_guid, time`,
+      plotGpsPoints: `${localGuidFieldName}, plot_guid, time`,
       plotTrees: `${localGuidFieldName}, plot_guid, tree_num`,
       treeMeasurements: `${localGuidFieldName}, tree_guid, visit_guid`,
       lookups: `${localGuidFieldName}, feature, code`,

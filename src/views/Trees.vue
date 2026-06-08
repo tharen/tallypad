@@ -4,6 +4,11 @@
 // TODO: Add horizontal scrolling with fixed tree ID columns
 // TODO: Sort by azimuth
 // TODO: Add stay-awake to the screen lock
+// TODO: Scroll table view on horizontal navigation, like vertical
+// TODO: Make the input pad a bit smaller to save screen space for the table
+// TODO: Popup device keyboard for Remarks
+// TODO: Enable desktop editing mode
+// TODO: Add n-trees to header
 
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
@@ -100,6 +105,7 @@
       </table>
     </div>
 
+    <!-- Navigation bar -->
     <div class="p-2 flex justify-between items-center border-b-2" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--keypad-bg)' }">
       <div class="flex gap-2">
         <button @click="addRow" class="nav-btn !text-green-600">＋</button>
@@ -113,6 +119,7 @@
       </div>
     </div>
 
+    <!-- Entry Pad -->
     <div v-if="store.isMobile.value" class="p-2 h-[40dvh]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
       <div v-if="activeColConfig?.type === 'number'" class="grid grid-cols-4 gap-2 h-full">
         <button v-for="n in [7, 8, 9]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
@@ -135,6 +142,19 @@
           class="chip"
           :class="{ 'active-chip': rows[activeRow][activeColConfig.key] === opt }">
           {{ opt }}
+        </button>
+      </div>
+      <div v-else-if="activeColConfig?.type === 'string'" class="flex flex-col gap-2 h-full p-1">
+        <input
+          type="text"
+          v-model="rows[activeRow][activeColConfig.key]"
+          @change="saveRow(rows[activeRow])"
+          @keyup.enter="move('right')"
+          class="w-full flex-1 p-3 border border-gray-300 rounded text-lg text-black bg-white"
+          placeholder="Enter text..."
+        />
+        <button @click="move('right')" class="keypad-btn !bg-blue-600 !text-white min-h-[3.5rem]">
+          ENT
         </button>
       </div>
     </div>
@@ -223,8 +243,8 @@ const columns = computed<Column[]>((): Column[] => [
   { label: 'S', key: 's', type: 'select', options: [0,1,2,3,4,5,6,7,8,9], visible: true },
   { label: 'FC', key: 'fc', type: 'number', visible: true },
   { label: 'HT', key: 'ht', type: 'number', visible: true },
-  { label: 'TD', key: 'upstd', type: 'number', visible: true },
-  { label: 'THT', key: 'upstht', type: 'number', visible: true },
+  { label: 'BD', key: 'upstd', type: 'number', visible: true },
+  { label: 'BHT', key: 'upstht', type: 'number', visible: true },
   { label: 'CR', key: 'cr', type: 'number', visible: true },
   { label: 'CC', key: 'cc', type: 'select', visible: true, options: [1,2,3,4,5] },
   { label: 'D1', key: 'd1', type: 'number', visible: true },
@@ -390,9 +410,11 @@ const saveRow = async (row: Row) => {
     guid: row.tree_guid,
     plot_guid: row.plot_guid,
     tree_num: Number(row.tree_num),
-    sp: row.sp,
     az: Number(row.az),
     hd: Number(row.hd),
+    sp: row.sp,
+    ref: row.ref,
+    sd: Number(row.sd),
     remarks: row.remarks
   };
 
@@ -403,16 +425,25 @@ const saveRow = async (row: Row) => {
     dbh: Number(row.dbh),
     gp: row.gp,
     gt: Number(row.gt),
+    s: row.s,
+    fc: Number(row.fc),
+    ht: Number(row.ht),
     upstd: Number(row.upstd),
     upstht: Number(row.upstht),
     cr: Number(row.cr),
     cc: row.cc,
     d1: Number(row.d1),
     s1: Number(row.s1),
-    s: row.s,
-    ht: Number(row.ht),
+    d2: Number(row.d2),
+    s2: Number(row.s2),
+    d3: Number(row.d3),
+    s3: Number(row.s3),
     c: row.c,
-    
+    age: Number(row.age),
+    bt: Number(row.bt),
+    fiveyr: Number(row.fiveyr),
+    tenyr: Number(row.tenyr),
+    remarks: row.remarks
   };
 
   await Promise.all([
@@ -422,7 +453,7 @@ const saveRow = async (row: Row) => {
 };
 
 // Delete a row from database
-// TODO: Ensure deleting trees is on allowed for incomplete visits
+// TODO: Ensure deleting trees is not allowed for incomplete visits
 const deleteRow = async (row: Row) => {
   if (row.tree_guid) {
     await Promise.all([
@@ -601,6 +632,10 @@ const backToPlots = () => {
 };
 
 onMounted(async () => {
+  if ('virtualKeyboard' in navigator) {
+    (navigator as any).virtualKeyboard.overlaysContent = true;
+  }
+
   updateFullscreenState();
   document.addEventListener('fullscreenchange', updateFullscreenState);
   document.addEventListener('click', closeMenu);

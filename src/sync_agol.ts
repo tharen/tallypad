@@ -22,7 +22,7 @@
  *     when undefined; no coercion required.
  */
 
-import { db, IPlot, ILocation, IPlotVisit, ITree, ITreeMeasurement, ILookups, IEdit } from './db';
+import { db, IPlot, IGpsPoint, IPlotVisit, ITree, ITreeMeasurement, ILookups, IEdit } from './db';
 import { useAppStore } from './stores/appStore'
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ const LAYER = {
   tree:        2,
   visit:       3,
   measurement: 4,
-  location:    5,
+  gps_point:   5,
   lookup:      6,
   edit:        7,
 } as const;
@@ -139,7 +139,7 @@ function stripReadOnly(attrs: Record<string, unknown>): Record<string, unknown> 
     'OBJECTID', 'GlobalID',
     'created_user', 'created_date',
     'last_edited_user', 'last_edited_date',
-    // location layer uses different editor-tracking field names
+    // gps_point layer uses different editor-tracking field names
     'CreationDate', 'Creator', 'EditDate', 'Editor',
   ]);
   return Object.fromEntries(Object.entries(attrs).filter(([k]) => !readOnly.has(k)));
@@ -236,11 +236,11 @@ async function syncPlots(token: string): Promise<void> {
   logApplyResults('plots', result);
 }
 
-// ---- Locations (layer 5, Feature Layer) ------------------------------------
+// ---- GpsPoints (layer 5, Feature Layer) ------------------------------------
 
-async function syncLocations(token: string): Promise<void> {
-  const remote = await queryAll(LAYER.location, token);
-  console.log('locations', remote.length)
+async function syncGpsPoints(token: string): Promise<void> {
+  const remote = await queryAll(LAYER.gps_point, token);
+  console.log('GpsPoints', remote.length)
 
   const remoteByGuid = new Map<string, EsriFeature>();
   for (const f of remote) {
@@ -248,10 +248,10 @@ async function syncLocations(token: string): Promise<void> {
     if (g) remoteByGuid.set(g.toUpperCase(), f);
   }
 
-  const locals = await db.plotLocations.toArray();
+  const locals = await db.plotGpsPoints.toArray();
   const localByGuid = new Map(locals.map(l => [l.guid.toUpperCase(), l]));
 
-  const toAdd: ILocation[] = [];
+  const toAdd: IGpsPoint[] = [];
   for (const f of remote) {
     const g = (f.attributes['guid'] as string | undefined)?.toUpperCase();
     if (!g || localByGuid.has(g)) continue;
@@ -274,7 +274,7 @@ async function syncLocations(token: string): Promise<void> {
       GlobalID:   a['GlobalID'] as string | undefined,
     });
   }
-  if (toAdd.length) await db.plotLocations.bulkAdd(toAdd);
+  if (toAdd.length) await db.plotGpsPoints.bulkAdd(toAdd);
 
   const adds:    EsriFeature[] = [];
   const updates: EsriFeature[] = [];
@@ -308,8 +308,8 @@ async function syncLocations(token: string): Promise<void> {
     }
   }
 
-  const result = await applyEdits(LAYER.location, adds, updates, token);
-  logApplyResults('locations', result);
+  const result = await applyEdits(LAYER.gps_point, adds, updates, token);
+  logApplyResults('GpsPoints', result);
 }
 
 // ---- Visits (table 3) ------------------------------------------------------
@@ -695,7 +695,7 @@ export interface SyncResult {
  * Run a full bidirectional sync for all tables.
  *
  * Order matters: parents before children to avoid FK violations on the server.
- *   plots -> locations -> visits -> trees -> measurements -> lookups -> edits
+ *   plots -> GpsPoints -> visits -> trees -> measurements -> lookups -> edits
  */
 export async function syncAll(state: ReturnType<typeof useAppStore> ): Promise<SyncResult> {
   const esriToken = state.esriToken.value;
@@ -707,7 +707,7 @@ export async function syncAll(state: ReturnType<typeof useAppStore> ): Promise<S
 
   const steps: [string, () => Promise<void>][] = [
     ['plots',        () => syncPlots(esriToken)],
-    ['locations',    () => syncLocations(esriToken)],
+    ['gps_points',   () => syncGpsPoints(esriToken)],
     ['visits',       () => syncVisits(esriToken)],
     ['trees',        () => syncTrees(esriToken)],
     ['measurements', () => syncMeasurements(esriToken)],
@@ -743,7 +743,7 @@ export async function syncTable(
 
   const dispatch: Record<keyof typeof LAYER, () => Promise<void>> = {
     plot:        () => syncPlots(esriToken),
-    location:    () => syncLocations(esriToken),
+    gps_point:    () => syncGpsPoints(esriToken),
     visit:       () => syncVisits(esriToken),
     tree:        () => syncTrees(esriToken),
     measurement: () => syncMeasurements(esriToken),
