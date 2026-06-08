@@ -25,6 +25,15 @@
 import { db, IPlot, IGpsPoint, IPlotVisit, ITree, ITreeMeasurement, ILookups, IEdit } from './db';
 import { useAppStore } from './stores/appStore'
 
+/** Helper to convert empty string or other falsy values to null, and coerce numbers to valid numbers or null */
+function toEsriNumber(val: unknown): number | null {
+  if (val === '' || val === undefined || val === null) {
+    return null;
+  }
+  const num = Number(val);
+  return isNaN(num) ? null : num;
+}
+
 // ---------------------------------------------------------------------------
 // App state -- replace with your actual reactive state source (Pinia, etc.)
 // ---------------------------------------------------------------------------
@@ -214,9 +223,9 @@ async function syncPlots(token: string): Promise<void> {
     const attrs = stripReadOnly({
       guid:              plot.guid,
       plotid:            plot.plotid,
-      established_date:  plot.established ?? null,
-      planned_latitude:  plot.planned_latitude ?? null,
-      planned_longitude: plot.planned_longitude ?? null,
+      established_date:  toEsriNumber(plot.established),
+      planned_latitude:  toEsriNumber(plot.planned_latitude),
+      planned_longitude: toEsriNumber(plot.planned_longitude),
       remarks:           plot.remarks ?? null,
     });
 
@@ -283,16 +292,16 @@ async function syncGpsPoints(token: string): Promise<void> {
     const attrs = stripReadOnly({
       guid:       loc.guid,
       plot_guid:  loc.plot_guid,
-      latitude:   loc.latitude,
-      longitude:  loc.longitude,
-      time:       loc.time,
+      latitude:   toEsriNumber(loc.latitude),
+      longitude:  toEsriNumber(loc.longitude),
+      time:       toEsriNumber(loc.time),
       model:      loc.model,
-      fix:        loc.fix,
-      sat:        loc.sat,
-      hdop:       loc.hdop,
-      vdop:       loc.vdop,
-      pdop:       loc.pdop,
-      ageofdgpsd: loc.ageofdgpsd,
+      fix:        toEsriNumber(loc.fix),
+      sat:        toEsriNumber(loc.sat),
+      hdop:       toEsriNumber(loc.hdop),
+      vdop:       toEsriNumber(loc.vdop),
+      pdop:       toEsriNumber(loc.pdop),
+      ageofdgpsd: toEsriNumber(loc.ageofdgpsd),
       remarks:    loc.remarks,
     });
 
@@ -356,8 +365,8 @@ async function syncVisits(token: string): Promise<void> {
     const attrs = stripReadOnly({
       guid:             visit.guid,
       plot_guid:        visit.plot_guid,
-      measurement_date: visit.measurement_date,
-      visit_number:     visit.visit_number,
+      measurement_date: toEsriNumber(visit.measurement_date),
+      visit_number:     toEsriNumber(visit.visit_number),
       status:           visit.status ?? null,
       crew:             visit.crew ?? null,
       remarks:          visit.remarks ?? null,
@@ -421,12 +430,12 @@ async function syncTrees(token: string): Promise<void> {
     const attrs = stripReadOnly({
       guid:      tree.guid,
       plot_guid: tree.plot_guid,
-      tree_num:  tree.tree_num,
+      tree_num:  toEsriNumber(tree.tree_num),
       sp:        tree.sp,
-      az:        tree.az ?? null,
-      hd:        tree.hd ?? null,
-      ref:       tree.ref ?? null,
-      sd:        tree.sd ?? null,
+      az:        toEsriNumber(tree.az),
+      hd:        toEsriNumber(tree.hd),
+      ref:       toEsriNumber(tree.ref),
+      sd:        toEsriNumber(tree.sd),
       remarks:   tree.remarks ?? null,
     });
 
@@ -508,29 +517,29 @@ async function syncMeasurements(token: string): Promise<void> {
       tree_guid:  m.tree_guid,
       visit_guid: m.visit_guid,
       gp:         m.gp,
-      gt:         m.gt,
-      dbh:        m.dbh,
-      s:          m.s,
-      fc:         m.fc ?? null,
-      ht:         m.ht ?? null,
-      age:        m.age ?? null,
-      cr:         m.cr ?? null,
-      cc:         m.cc ?? null,
-      d1:         m.d1 ?? null,
-      s1:         m.s1 ?? null,
-      d2:         m.d2 ?? null,
-      s2:         m.s2 ?? null,
-      d3:         m.d3 ?? null,
-      s3:         m.s3 ?? null,
-      def1:       m.def1 ?? null,
-      def2:       m.def2 ?? null,
-      def3:       m.def3 ?? null,
-      c:          m.c ?? null,
-      bt:         m.bt ?? null,
-      upstht:     m.upstht ?? null,
-      upstd:      m.upstd ?? null,
-      fiveyr:     m.fiveyr ?? null,
-      tenyr:      m.tenyr ?? null,
+      gt:         toEsriNumber(m.gt),
+      dbh:        toEsriNumber(m.dbh),
+      s:          toEsriNumber(m.s),
+      fc:         toEsriNumber(m.fc),
+      ht:         toEsriNumber(m.ht),
+      age:        toEsriNumber(m.age),
+      cr:         toEsriNumber(m.cr),
+      cc:         toEsriNumber(m.cc),
+      d1:         toEsriNumber(m.d1),
+      s1:         toEsriNumber(m.s1),
+      d2:         toEsriNumber(m.d2),
+      s2:         toEsriNumber(m.s2),
+      d3:         toEsriNumber(m.d3),
+      s3:         toEsriNumber(m.s3),
+      def1:       toEsriNumber(m.def1),
+      def2:       toEsriNumber(m.def2),
+      def3:       toEsriNumber(m.def3),
+      c:          toEsriNumber(m.c),
+      bt:         toEsriNumber(m.bt),
+      upstht:     toEsriNumber(m.upstht),
+      upstd:      toEsriNumber(m.upstd),
+      fiveyr:     toEsriNumber(m.fiveyr),
+      tenyr:      toEsriNumber(m.tenyr),
       remarks:    m.remarks ?? null,
     });
 
@@ -646,7 +655,7 @@ async function syncEdits(token: string): Promise<void> {
       old_value:   edit.old_value,
       new_value:   edit.new_value,
       reason:      edit.reason,
-      edit_date:   edit.edit_date,
+      edit_date:   toEsriNumber(edit.edit_date),
     });
 
     if (remoteByGuid.has(edit.guid.toUpperCase())) {
