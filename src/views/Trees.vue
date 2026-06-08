@@ -73,7 +73,7 @@
             <!-- <th v-for="col in columns" :key="col.key">{{ col.label }}</th> -->
             <template v-for="col in columns" :key="col.key">
               <th v-if="col.visible"
-                class="w-40"
+                
                 :class="{ 'freeze-col': col.freeze }"
                 :style="col.freeze ? { left: frozenLeftOffsets[col.key] } : {}">
                 {{ col.label }}
@@ -88,18 +88,34 @@
                 :key="col.key"
                 :class="{
                   'min-w-[17rem]': col.key === 'remarks'
+                  , '!min-w-10': col.type === 'select'
                   , 'active-cell': activeRow === rIdx && activeCol === cIdx
                   , 'prior-val': row.isPrior
                   , 'freeze-col': col.freeze 
+                  , '!p-0': !store.isMobile.value && col.type === 'select' && activeRow === rIdx && activeCol === cIdx && !row.isPrior
                   }"
                 :style="[
                   row.isPrior ? { backgroundColor: 'var(--btn-bg)' } : {},
                   col.freeze ? { left: frozenLeftOffsets[col.key] } : {}
                 ]"
                 @click="setActive(rIdx, cIdx)">
-                <span :style="row.isPrior ? { opacity: 0.65 } : {}">
-                  {{ row[col.key] }}
-                </span>
+                <template v-if="!store.isMobile.value && col.type === 'select' && activeRow === rIdx && activeCol === cIdx && !row.isPrior">
+                  <select
+                    ref="activeSelectRef"
+                    v-focus
+                    v-model="row[col.key]"
+                    @change="saveRow(row)"
+                    class="bg-transparent border-0 outline-none text-inherit font-inherit cursor-pointer select-dropdown w-full h-full"
+                  >
+                    <option value=""></option>
+                    <option v-for="opt in col.options" :key="opt" :value="opt">{{ opt }}</option>
+                  </select>
+                </template>
+                <template v-else>
+                  <span :style="row.isPrior ? { opacity: 0.65 } : {}">
+                    {{ row[col.key] }}
+                  </span>
+                </template>
               </td>
             </template>
           </tr>
@@ -168,6 +184,14 @@
 import { computed, onBeforeUnmount, onMounted, onUnmounted, ref } from 'vue';
 import { useAppStore } from '../stores/appStore';
 import { db, ITree, ITreeMeasurement } from '../db';
+
+const vFocus = {
+  mounted: (el: HTMLElement) => {
+    el.focus();
+  }
+};
+
+const activeSelectRef = ref<HTMLSelectElement | null>(null);
 
 type Column = {
   label: string;
@@ -357,7 +381,7 @@ const commitEditCheck = async () => {
   const oldVal = lastCellValue.value;
 
   // Define which attributes are considered "static" tree attributes
-  const staticFields = ['tree_num', 'az', 'hd', 'species'];
+  const staticFields = ['tree_num', 'az', 'hd', 'sp'];
   
   if (!row.isNew && staticFields.includes(colKey) && String(currentVal) !== String(oldVal)) {
     const reason = prompt(`Reason for changing static attribute "${col.label}" from "${oldVal}" to "${currentVal}"?`);
@@ -746,6 +770,20 @@ const handleGlobalKeydown = async (event: KeyboardEvent) => {
     return;
   }
 
+  if (event.key === ' ' || event.code === 'Space') {
+    if (colConfig && colConfig.type === 'select') {
+      event.preventDefault();
+      if (activeSelectRef.value && typeof activeSelectRef.value.showPicker === 'function') {
+        try {
+          activeSelectRef.value.showPicker();
+        } catch (err) {
+          console.error('Failed to show select picker:', err);
+        }
+      }
+      return;
+    }
+  }
+
   if (rows.value.length === 0) return;
   const row = rows.value[activeRow.value];
   if (!row || row.isPrior) return;
@@ -972,7 +1010,6 @@ onUnmounted(async () => {
 }
 
 table {
-  width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13px;
@@ -1157,5 +1194,24 @@ th.freeze-col {
   color: #000;
   font-weight: bold;
   cursor: pointer;
+}
+
+.select-dropdown {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: var(--text-primary);
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: center;
+  text-align-last: center;
+  /* padding: 6px 20px 6px 4px; /* Add right padding to prevent dropdown arrow from obscuring values */
+  cursor: pointer;
+}
+.select-dropdown option {
+  background-color: var(--cell-bg);
+  color: var(--text-primary);
 }
 </style>
