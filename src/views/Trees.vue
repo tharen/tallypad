@@ -705,6 +705,140 @@ const backToPlots = () => {
   store.goToPlots();
 };
 
+const handleGlobalKeydown = async (event: KeyboardEvent) => {
+  if (store.isMobile.value) return;
+
+  const target = event.target as HTMLElement;
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+    return;
+  }
+
+  if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    await move('up');
+    return;
+  }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    await move('down');
+    return;
+  }
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    await move('left');
+    return;
+  }
+  if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    await move('right');
+    return;
+  }
+  if (event.key === 'Tab') {
+    event.preventDefault();
+    if (event.shiftKey) {
+      await move('left');
+    } else {
+      await move('right');
+    }
+    return;
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    await move('right');
+    return;
+  }
+
+  if (rows.value.length === 0) return;
+  const row = rows.value[activeRow.value];
+  if (!row || row.isPrior) return;
+
+  const colConfig = activeColConfig.value;
+  if (!colConfig) return;
+  const colKey = colConfig.key;
+
+  if (event.key === 'Backspace') {
+    event.preventDefault();
+    const current = String(row[colKey] ?? '');
+    if (cellNeedsOverwrite.value) {
+      row[colKey] = '';
+      cellNeedsOverwrite.value = false;
+    } else {
+      row[colKey] = current.slice(0, -1);
+    }
+    await saveRow(row);
+    return;
+  }
+
+  if (event.key === 'Delete') {
+    event.preventDefault();
+    row[colKey] = '';
+    cellNeedsOverwrite.value = true;
+    await saveRow(row);
+    return;
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    undoEdit();
+    return;
+  }
+
+  if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (colConfig.type === 'number') {
+      if (/[\d\.]/.test(event.key)) {
+        event.preventDefault();
+        const current = String(row[colKey] ?? '');
+        if (cellNeedsOverwrite.value) {
+          row[colKey] = event.key;
+          cellNeedsOverwrite.value = false;
+        } else {
+          if (event.key === '.' && current.includes('.')) return;
+          row[colKey] = current + event.key;
+        }
+        await saveRow(row);
+      }
+    } else if (colConfig.type === 'select') {
+      event.preventDefault();
+      const options = colConfig.options || [];
+      const current = String(row[colKey] ?? '');
+      const typed = event.key;
+      const candidate = (cellNeedsOverwrite.value ? typed : current + typed).toLowerCase();
+      
+      const exactMatch = options.find(opt => String(opt).toLowerCase() === candidate);
+      if (exactMatch !== undefined) {
+        row[colKey] = exactMatch;
+        cellNeedsOverwrite.value = false;
+        await saveRow(row);
+        await move('right');
+        return;
+      }
+      
+      const prefixMatches = options.filter(opt => String(opt).toLowerCase().startsWith(candidate));
+      if (prefixMatches.length === 1) {
+        row[colKey] = prefixMatches[0];
+        cellNeedsOverwrite.value = false;
+        await saveRow(row);
+        await move('right');
+        return;
+      } else if (prefixMatches.length > 1) {
+        row[colKey] = cellNeedsOverwrite.value ? typed.toUpperCase() : current + typed.toUpperCase();
+        cellNeedsOverwrite.value = false;
+        await saveRow(row);
+      }
+    } else if (colConfig.type === 'string') {
+      event.preventDefault();
+      const current = String(row[colKey] ?? '');
+      if (cellNeedsOverwrite.value) {
+        row[colKey] = event.key;
+        cellNeedsOverwrite.value = false;
+      } else {
+        row[colKey] = current + event.key;
+      }
+      await saveRow(row);
+    }
+  }
+};
+
 onMounted(async () => {
   if ('virtualKeyboard' in navigator) {
     (navigator as any).virtualKeyboard.overlaysContent = true;
@@ -713,6 +847,7 @@ onMounted(async () => {
   updateFullscreenState();
   document.addEventListener('fullscreenchange', updateFullscreenState);
   document.addEventListener('click', closeMenu);
+  document.addEventListener('keydown', handleGlobalKeydown);
 
   if (tableBox.value) {
     resizeObserver = new ResizeObserver(() => {
@@ -734,6 +869,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', updateFullscreenState);
   document.removeEventListener('click', closeMenu);
+  document.removeEventListener('keydown', handleGlobalKeydown);
   if (resizeObserver) resizeObserver.disconnect();
 });
 
