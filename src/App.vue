@@ -79,7 +79,12 @@
             <div class="flex justify-between items-start">
               <div>
                 <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
-                <h2 class="text-2xl font-bold mb-3">{{ plot.plotid }}</h2>
+                <div class="flex items-center gap-2">
+                  <h2 class="text-2xl font-bold mb-3">{{ plot.plotid }}</h2>
+                  <button @click.stop="store.goToPlotDetail(plot)" class="p-1 text-sm opacity-60 hover:opacity-100 cursor-pointer" title="Edit Plot & Visits">
+                    ✏️
+                  </button>
+                </div>
               </div>
               <div class="text-right">
                 <div class="text-sm opacity-70 uppercase tracking-wide">Trees</div>
@@ -113,6 +118,11 @@
       </div>
     </template>
 
+    <template v-else-if="store.currentView.value === 'plot_detail'">
+      <!-- Plot Details View -->
+      <PlotDetails />
+    </template>
+
     <template v-else-if="store.currentView.value === 'trees'">
       <!-- Trees View -->
       <Trees />
@@ -131,6 +141,7 @@ import { useAppStore } from './stores/appStore';
 import { db, IPlot, IPlotVisit, ITree, ITreeMeasurement, renewDatabase } from './db';
 import Trees from './views/Trees.vue';
 import Setup from './views/Setup.vue';
+import PlotDetails from './views/PlotDetails.vue';
 
 const store = useAppStore();
 const dbVersion = ref(0);
@@ -174,7 +185,7 @@ const addNewVisit = async (plot: IPlotWithVisits) => {
     measurement_date: Date.now(),
     // visit_number: plot.visits.length + 1,
     visit_number: plot.visits.length === 0 ? 1 : Math.max(...plot.visits.map(v => v.visit_number)) + 1,
-    status: 'Not Completed'
+    status: 'Planned'
   };
 
   await db.plotVisits.add(newVisit);

@@ -3,7 +3,7 @@ import { ITree, IPlot, IPlotVisit, ITreeMeasurement } from '../db';
 
 export interface AppState {
   isMobile: boolean;
-  currentView: 'plots' | 'trees' | 'setup';
+  currentView: 'plots' | 'trees' | 'setup' | 'plot_detail';
   selectedPlot: IPlot | null;
   selectedVisit: IPlotVisit | null;
   priorVisit: IPlotVisit | null;
@@ -55,6 +55,11 @@ export const useAppStore = () => {
   
   const goToSetup = () => {
     state.value.currentView = 'setup';
+  };
+
+  const goToPlotDetail = (plot: IPlot) => {
+    state.value.selectedPlot = plot;
+    state.value.currentView = 'plot_detail';
   };
 
   const toggleDarkMode = () => {
@@ -161,6 +166,7 @@ export const useAppStore = () => {
     goToTrees,
     goToPlots,
     goToSetup,
+    goToPlotDetail,
     toggleDarkMode,
     checkDeviceType,
     isMobile,
