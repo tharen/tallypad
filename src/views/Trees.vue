@@ -1,9 +1,7 @@
-// TODO: When navigating to a numeric cell, edits from the number pad should replace the existing contents, as if the text was selected before typing.
 // TODO: Increase contrast between prior and current rows
 // TODO: Add all measurement fields
-// TODO: Add horizontal scrolling with fixed tree ID columns
 // TODO: Sort by azimuth
-// TODO: Add stay-awake to the screen lock
+// TODO: Add a maximum time setting for the vakelock to prevent accidental battery drain
 // TODO: Scroll table view on horizontal navigation, like vertical
 // TODO: Make the input pad a bit smaller to save screen space for the table
 // TODO: Popup device keyboard for Remarks
@@ -82,7 +80,8 @@
             <template v-for="col in columns" :key="col.key">
               <th v-if="col.visible"
                 class="w-40"
-                :class="{ 'xfreeze-col': col.freeze }">
+                :class="{ 'freeze-col': col.freeze }"
+                :style="col.freeze ? { left: frozenLeftOffsets[col.key] } : {}">
                 {{ col.label }}
               </th>
             </template>
@@ -94,10 +93,15 @@
               <td v-if="col.visible"
                 :key="col.key"
                 class="w-40"
-                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx, 'prior-val': row.isPrior, 'xfreeze-col': col.freeze }"
-                :style="row.isPrior ? { opacity: 0.65, backgroundColor: 'var(--btn-bg)' } : {}"
+                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx, 'prior-val': row.isPrior, 'freeze-col': col.freeze }"
+                :style="[
+                  row.isPrior ? { backgroundColor: 'var(--btn-bg)' } : {},
+                  col.freeze ? { left: frozenLeftOffsets[col.key] } : {}
+                ]"
                 @click="setActive(rIdx, cIdx)">
-                {{ row[col.key] }}
+                <span :style="row.isPrior ? { opacity: 0.65 } : {}">
+                  {{ row[col.key] }}
+                </span>
               </td>
             </template>
           </tr>
@@ -120,7 +124,7 @@
     </div>
 
     <!-- Entry Pad -->
-    <div v-if="store.isMobile.value" class="p-2 h-[40dvh]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
+    <div v-if="store.isMobile.value" class="p-2 h-[36dvh]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
       <div v-if="activeColConfig?.type === 'number'" class="grid grid-cols-4 gap-2 h-full">
         <button v-for="n in [7, 8, 9]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
         <button @click="pressKey('back')" class="keypad-btn !bg-orange-500 !text-white">⌫</button>
@@ -132,6 +136,7 @@
 
         <button @click="pressKey(0)" class="keypad-btn col-span-2">0</button>
         <button @click="pressKey('.')" class="keypad-btn">.</button>
+        <button @click="undoEdit" class="keypad-btn !bg-gray-500 !text-white text-sm">UNDO</button>
       </div>
 
       <div v-else-if="activeColConfig?.type === 'select'" class="grid grid-cols-3 gap-3 overflow-y-auto h-full p-1">
@@ -226,18 +231,42 @@ const isMenuOpen = ref(false);
 const tableBox = ref<HTMLDivElement | null>(null);
 const lastCellValue = ref<any>(null);
 const lastCellRef = ref<{ r: number, c: number } | null>(null);
+const cellNeedsOverwrite = ref(false);
 
 const spOptions = ref<string[]>([]);
+
+const frozenLeftOffsets = ref<Record<string, string>>({});
+const currentLeft = ref(0);
+let resizeObserver: ResizeObserver | null = null;
+
+const updateFrozenOffsets = () => {
+  if (!tableBox.value) return;
+  const ths = tableBox.value.querySelectorAll('thead th');
+  if (!ths.length) return;
+  
+  currentLeft.value = 0;
+  let visibleColIdx = 0;
+  
+  columns.value.forEach((col) => {
+    if (!col.visible) return;
+    if (col.freeze) {
+      frozenLeftOffsets.value[col.key] = `${currentLeft.value}px`;
+      const th = ths[visibleColIdx] as HTMLElement;
+      currentLeft.value += th.offsetWidth || 0;
+    }
+    visibleColIdx++;
+  });
+};
 
 const columns = computed<Column[]>((): Column[] => [
   // { label: 'MSMT ID', key: 'measurement_guid', type: 'string', visible: false , freeze: false },
   // { label: 'Plot ID', key: 'plot_guid', type: 'string', visible: false, freeze: false},
+  { label: 'Tr', key: 'tree_num', type: 'number', visible: true, freeze: false},
   { label: 'V', key: 'visit_number', type: 'number', visible: true, freeze: false},
-  { label: 'Tr', key: 'tree_num', type: 'number', visible: true, freeze: true},
   { label: 'AZ', key: 'az', type: 'number', visible: true, freeze: true},
-  { label: 'HD', key: 'hd', type: 'number', visible: true, freeze: true},
+  { label: 'HD', key: 'hd', type: 'number', visible: true, freeze: false},
   { label: 'SP', key: 'sp', type: 'select', options: spOptions.value, visible: true, freeze: true},
-  { label: 'DBH', key: 'dbh', type: 'number', visible: true },
+  { label: 'DBH', key: 'dbh', type: 'number', visible: true, freeze: true },
   { label: 'GP', key: 'gp', type: 'select', visible: true, options: ['..','SN','DD']},
   { label: 'GT', key: 'gt', type: 'number', visible: true },
   { label: 'S', key: 's', type: 'select', options: [0,1,2,3,4,5,6,7,8,9], visible: true },
@@ -316,6 +345,7 @@ const captureSnapshot = () => {
   lastCellValue.value = rows.value[activeRow.value][colKey];
 };
 
+// Log edits to static tree attribute
 const commitEditCheck = async () => {
   if (!lastCellRef.value || rows.value.length === 0) return true;
   
@@ -400,6 +430,7 @@ const loadRows = async () => {
     await addRow();
   }
   captureSnapshot();
+  cellNeedsOverwrite.value = true;
 };
 
 // Save a row to database
@@ -438,6 +469,9 @@ const saveRow = async (row: Row) => {
     s2: Number(row.s2),
     d3: Number(row.d3),
     s3: Number(row.s3),
+    def1: Number(row.def1),
+    def2: Number(row.def2),
+    def3: Number(row.def3),
     c: row.c,
     age: Number(row.age),
     bt: Number(row.bt),
@@ -479,13 +513,25 @@ const scrollActiveIntoView = async () => {
   const cellRect = activeCell.getBoundingClientRect();
   const cellTop = cellRect.top - wrapperRect.top + wrapper.scrollTop;
   const cellBottom = cellTop + cellRect.height;
+  const cellLeft = cellRect.left - wrapperRect.left + wrapper.scrollLeft;
+  const cellRight = cellLeft + cellRect.width;
   const visibleTop = wrapper.scrollTop + headerHeight;
   const visibleBottom = wrapper.scrollTop + wrapper.clientHeight;
+  const visibleLeft = wrapper.scrollLeft + currentLeft.value;
+  const visibleRight = wrapper.scrollLeft + wrapper.clientWidth;
 
   if (cellTop < visibleTop) {
     wrapper.scrollTop = Math.max(cellTop - headerHeight, 0);
   } else if (cellBottom > visibleBottom) {
     wrapper.scrollTop = Math.min(cellBottom - wrapper.clientHeight, wrapper.scrollHeight - wrapper.clientHeight);
+  }
+  
+  if (!activeColConfig.value.freeze) {
+    if (cellLeft < visibleLeft) {
+      wrapper.scrollLeft = Math.max(cellLeft - currentLeft.value, 0);
+    } else if (cellRight > visibleRight) {
+      wrapper.scrollLeft = Math.min(cellRight - wrapper.clientWidth, wrapper.scrollWidth - wrapper.clientWidth);
+    }
   }
 };
 
@@ -495,6 +541,7 @@ const setActive = async (r: number, c: number) => {
   activeRow.value = r;
   activeCol.value = c;
   captureSnapshot();
+  cellNeedsOverwrite.value = true;
   scrollActiveIntoView();
 };
 
@@ -523,6 +570,7 @@ const move = async (dir: 'up' | 'down' | 'left' | 'right') => {
     if (currentIdx < visibleIndices.length - 1) activeCol.value = visibleIndices[currentIdx + 1];
   }
   captureSnapshot();
+  cellNeedsOverwrite.value = true;
   scrollActiveIntoView();
 };
 
@@ -531,13 +579,38 @@ const pressKey = (key: number | 'back' | '.') => {
   const colKey = activeColConfig.value.key;
   const current = String(row[colKey] ?? '');
 
+  // lastCellValue.value = current;
+  console.log(lastCellValue.value);
+
+
   if (key === 'back') {
-    row[colKey] = current.slice(0, -1);
+    if (cellNeedsOverwrite.value) {
+      row[colKey] = '';
+      cellNeedsOverwrite.value = false;
+    } else {
+      row[colKey] = current.slice(0, -1);
+    }
   } else {
-    if (key === '.' && current.includes('.')) return;
-    row[colKey] = current + String(key);
+    if (cellNeedsOverwrite.value) {
+      row[colKey] = String(key);
+      cellNeedsOverwrite.value = false;
+    } else {
+      if (key === '.' && current.includes('.')) return;
+      row[colKey] = current + String(key);
+    }
   }
 
+  // Save the updated row to database
+  saveRow(row);
+};
+
+const undoEdit = () => {
+  if (rows.value.length === 0) return;
+  const row = rows.value[activeRow.value];
+  const colKey = activeColConfig.value.key;
+  
+  row[colKey] = lastCellValue.value;
+  cellNeedsOverwrite.value = true;
   // Save the updated row to database
   saveRow(row);
 };
@@ -577,6 +650,7 @@ const addRow = async () => {
   activeRow.value = rows.value.length - 1;
   activeCol.value = 3; // Focus Tr
   captureSnapshot();
+  cellNeedsOverwrite.value = true;
   scrollActiveIntoView();
   
   saveRow(newRow);
@@ -640,6 +714,15 @@ onMounted(async () => {
   document.addEventListener('fullscreenchange', updateFullscreenState);
   document.addEventListener('click', closeMenu);
 
+  if (tableBox.value) {
+    resizeObserver = new ResizeObserver(() => {
+      updateFrozenOffsets();
+    });
+    resizeObserver.observe(tableBox.value);
+    const table = tableBox.value.querySelector('table');
+    if (table) resizeObserver.observe(table);
+  }
+
   // Load tree records from database
   const spLookup = await db.lookups.where('feature').equals('sp').toArray();
   spOptions.value = spLookup.map(item => item.code);
@@ -651,6 +734,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', updateFullscreenState);
   document.removeEventListener('click', closeMenu);
+  if (resizeObserver) resizeObserver.disconnect();
 });
 
 // Screen Lock
@@ -755,8 +839,11 @@ onUnmounted(async () => {
 
 table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
+  border-top: 1px solid var(--border-color);
+  border-left: 1px solid var(--border-color);
 }
 
 th {
@@ -764,32 +851,36 @@ th {
   top: 0;
   background: var(--btn-bg);
   color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
   padding: 8px 6px;
   font-weight: 800;
   z-index: 10;
 }
 
 td {
-  border: 1px solid var(--border-color);
-  padding: 4px;
+  border-bottom: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+  padding: 6px 4px;
   text-align: center;
-  height: 40px;
+  /* height: 40px; */
   background: var(--cell-bg);
   color: var(--text-primary);
 }
 
 .freeze-col {
     position: sticky;
-    left: 0;
-    z-index: 10; /* Keeps the column on top of regular scrolling data */
-    background-color: #f1f1f1; /* Optional: distinct background for frozen column */
+    z-index: 1; /* Keeps the column on top of regular scrolling data */
+}
+th.freeze-col {
+    z-index: 20; /* Keeps frozen headers above normal headers */
   }
 
 .active-cell {
-  outline: 3px solid var(--accent);
-  outline-offset: -3px;
-  background: rgba(59, 130, 246, 0.2) !important;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--active-cell-bg) !important;
+  z-index: 99
 }
 
 .keypad-btn {
