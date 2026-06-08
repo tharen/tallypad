@@ -34,6 +34,31 @@ function toEsriNumber(val: unknown): number | null {
   return isNaN(num) ? null : num;
 }
 
+function hasChanges(localAttrs: Record<string, unknown>, remoteAttrs: Record<string, unknown>): boolean {
+  const remoteLower = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(remoteAttrs)) {
+    remoteLower.set(k.toLowerCase(), v);
+  }
+
+  for (const [key, localVal] of Object.entries(localAttrs)) {
+    const remoteVal = remoteLower.get(key.toLowerCase());
+    
+    const normalizedLocal = (localVal === null || localVal === undefined || localVal === '') ? null : localVal;
+    const normalizedRemote = (remoteVal === null || remoteVal === undefined || remoteVal === '') ? null : remoteVal;
+    
+    if (normalizedLocal !== normalizedRemote) {
+      if (typeof normalizedLocal === 'number' && typeof normalizedRemote === 'number') {
+        if (Math.abs(normalizedLocal - normalizedRemote) > 0.00001) {
+          return true;
+        }
+      } else if (String(normalizedLocal) !== String(normalizedRemote)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // App state -- replace with your actual reactive state source (Pinia, etc.)
 // ---------------------------------------------------------------------------
@@ -132,7 +157,7 @@ async function applyEdits(
   const result = await esriPost(url, {
     adds:              JSON.stringify(adds),
     updates:           JSON.stringify(updates),
-    useGlobalIds:      'true',
+    useGlobalIds:      'false',
     rollbackOnFailure: 'false',
   }, token) as ApplyEditsResponse;
   return result;
@@ -234,8 +259,12 @@ async function syncPlots(token: string): Promise<void> {
       ? { attributes: attrs, geometry: geo }
       : { attributes: attrs };
 
-    if (remoteByGuid.has(plot.guid.toUpperCase())) {
-      updates.push(feature);
+    const remoteFeature = remoteByGuid.get(plot.guid.toUpperCase());
+    if (remoteFeature) {
+      if (hasChanges(attrs, remoteFeature.attributes)) {
+        attrs['OBJECTID'] = remoteFeature.attributes['OBJECTID'];
+        updates.push(feature);
+      }
     } else {
       adds.push(feature);
     }
@@ -310,8 +339,12 @@ async function syncGpsPoints(token: string): Promise<void> {
       geometry:   { x: loc.longitude, y: loc.latitude, spatialReference: SR_4326 },
     };
 
-    if (remoteByGuid.has(loc.guid.toUpperCase())) {
-      updates.push(feature);
+    const remoteFeature = remoteByGuid.get(loc.guid.toUpperCase());
+    if (remoteFeature) {
+      if (hasChanges(attrs, remoteFeature.attributes)) {
+        attrs['OBJECTID'] = remoteFeature.attributes['OBJECTID'];
+        updates.push(feature);
+      }
     } else {
       adds.push(feature);
     }
@@ -372,8 +405,12 @@ async function syncVisits(token: string): Promise<void> {
       remarks:          visit.remarks ?? null,
     });
 
-    if (remoteByGuid.has(visit.guid.toUpperCase())) {
-      updates.push({ attributes: attrs });
+    const remoteFeature = remoteByGuid.get(visit.guid.toUpperCase());
+    if (remoteFeature) {
+      if (hasChanges(attrs, remoteFeature.attributes)) {
+        attrs['OBJECTID'] = remoteFeature.attributes['OBJECTID'];
+        updates.push({ attributes: attrs });
+      }
     } else {
       adds.push({ attributes: attrs });
     }
@@ -439,8 +476,12 @@ async function syncTrees(token: string): Promise<void> {
       remarks:   tree.remarks ?? null,
     });
 
-    if (remoteByGuid.has(tree.guid.toUpperCase())) {
-      updates.push({ attributes: attrs });
+    const remoteFeature = remoteByGuid.get(tree.guid.toUpperCase());
+    if (remoteFeature) {
+      if (hasChanges(attrs, remoteFeature.attributes)) {
+        attrs['OBJECTID'] = remoteFeature.attributes['OBJECTID'];
+        updates.push({ attributes: attrs });
+      }
     } else {
       adds.push({ attributes: attrs });
     }
@@ -543,12 +584,19 @@ async function syncMeasurements(token: string): Promise<void> {
       remarks:    m.remarks ?? null,
     });
 
-    if (remoteByGuid.has(m.guid.toUpperCase())) {
-      updates.push({ attributes: attrs });
+    const remoteFeature = remoteByGuid.get(m.guid.toUpperCase());
+    if (remoteFeature) {
+      if (hasChanges(attrs, remoteFeature.attributes)) {
+        attrs['OBJECTID'] = remoteFeature.attributes['OBJECTID'];
+        updates.push({ attributes: attrs });
+      }
     } else {
       adds.push({ attributes: attrs });
     }
   }
+
+  // console.log('measurements - Adds:', adds.length, 'Updates:', updates.length);
+  // console.log(adds);
 
   const result = await applyEdits(LAYER.measurement, adds, updates, token);
   logApplyResults('measurements', result);
@@ -598,8 +646,12 @@ async function syncLookups(token: string): Promise<void> {
       description: lookup.description,
     });
 
-    if (remoteByGuid.has(lookup.guid.toUpperCase())) {
-      updates.push({ attributes: attrs });
+    const remoteFeature = remoteByGuid.get(lookup.guid.toUpperCase());
+    if (remoteFeature) {
+      if (hasChanges(attrs, remoteFeature.attributes)) {
+        attrs['OBJECTID'] = remoteFeature.attributes['OBJECTID'];
+        updates.push({ attributes: attrs });
+      }
     } else {
       adds.push({ attributes: attrs });
     }
@@ -658,8 +710,12 @@ async function syncEdits(token: string): Promise<void> {
       edit_date:   toEsriNumber(edit.edit_date),
     });
 
-    if (remoteByGuid.has(edit.guid.toUpperCase())) {
-      updates.push({ attributes: attrs });
+    const remoteFeature = remoteByGuid.get(edit.guid.toUpperCase());
+    if (remoteFeature) {
+      if (hasChanges(attrs, remoteFeature.attributes)) {
+        attrs['OBJECTID'] = remoteFeature.attributes['OBJECTID'];
+        updates.push({ attributes: attrs });
+      }
     } else {
       adds.push({ attributes: attrs });
     }
