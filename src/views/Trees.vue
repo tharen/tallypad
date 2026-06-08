@@ -1,6 +1,6 @@
-// TODO: Add a maximum time setting for the vakelock to prevent accidental battery drain
-// TODO: Popup device keyboard for Remarks
+// TODO: Add a maximum time setting for the wakelock to prevent accidental battery drain
 // TODO: Add n-trees to header
+// TODO: Add local edit time tracking so the database import routine can handle device-device merges cleanly
 
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">

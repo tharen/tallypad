@@ -156,14 +156,39 @@ export const renewDatabase = () => {
   window.location.reload();
 };
 
-/**
- * Exports all tables in the database to a JSON file and triggers a browser download.
- */
-export const exportDatabase = async () => {
+export const exportDatabase = async (selectedPlotGuids?: string[]) => {
   try {
     const exportData: Record<string, any[]> = {};
-    for (const table of db.tables) {
-      exportData[table.name] = await table.toArray();
+    if (selectedPlotGuids) {
+      const plotGuidSet = new Set(selectedPlotGuids.map(g => g.toUpperCase()));
+      
+      const allPlots = await db.plots.toArray();
+      exportData['plots'] = allPlots.filter(p => plotGuidSet.has(p.guid.toUpperCase()));
+      
+      const allVisits = await db.plotVisits.toArray();
+      const selectedVisits = allVisits.filter(v => plotGuidSet.has(v.plot_guid.toUpperCase()));
+      exportData['plotVisits'] = selectedVisits;
+      const visitGuidSet = new Set(selectedVisits.map(v => v.guid.toUpperCase()));
+      
+      const allGps = await db.plotGpsPoints.toArray();
+      exportData['plotGpsPoints'] = allGps.filter(g => plotGuidSet.has(g.plot_guid.toUpperCase()));
+      
+      const allTrees = await db.plotTrees.toArray();
+      const selectedTrees = allTrees.filter(t => plotGuidSet.has(t.plot_guid.toUpperCase()));
+      exportData['plotTrees'] = selectedTrees;
+      const treeGuidSet = new Set(selectedTrees.map(t => t.guid.toUpperCase()));
+      
+      const allMeasurements = await db.treeMeasurements.toArray();
+      exportData['treeMeasurements'] = allMeasurements.filter(m => visitGuidSet.has(m.visit_guid.toUpperCase()));
+      
+      const allEdits = await db.edits.toArray();
+      exportData['edits'] = allEdits.filter(e => treeGuidSet.has(e.record_guid.toUpperCase()));
+      
+      exportData['lookups'] = await db.lookups.toArray();
+    } else {
+      for (const table of db.tables) {
+        exportData[table.name] = await table.toArray();
+      }
     }
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -180,11 +205,7 @@ export const exportDatabase = async () => {
   }
 };
 
-/**
- * Prompts the user to select a JSON file and imports its contents into the database.
- * Replaces existing data in matching tables.
- */
-export const importDatabase = () => {
+export const importDatabase = (mode: 'replace' | 'update') => {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/json';
@@ -199,8 +220,12 @@ export const importDatabase = () => {
           for (const tableName in json) {
             const table = db.table(tableName);
             if (table) {
-              await table.clear();
-              await table.bulkAdd(json[tableName]);
+              if (mode === 'replace') {
+                await table.clear();
+                await table.bulkAdd(json[tableName]);
+              } else {
+                await table.bulkPut(json[tableName]);
+              }
             }
           }
         });
