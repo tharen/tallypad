@@ -1,11 +1,5 @@
-// TODO: Increase contrast between prior and current rows
-// TODO: Add all measurement fields
-// TODO: Sort by azimuth
 // TODO: Add a maximum time setting for the vakelock to prevent accidental battery drain
-// TODO: Scroll table view on horizontal navigation, like vertical
-// TODO: Make the input pad a bit smaller to save screen space for the table
 // TODO: Popup device keyboard for Remarks
-// TODO: Enable desktop editing mode
 // TODO: Add n-trees to header
 
 <template>
@@ -92,8 +86,12 @@
             <template v-for="(col, cIdx) in columns" :key="col.key">
               <td v-if="col.visible"
                 :key="col.key"
-                class="w-40"
-                :class="{ 'active-cell': activeRow === rIdx && activeCol === cIdx, 'prior-val': row.isPrior, 'freeze-col': col.freeze }"
+                :class="{
+                  'min-w-[17rem]': col.key === 'remarks'
+                  , 'active-cell': activeRow === rIdx && activeCol === cIdx
+                  , 'prior-val': row.isPrior
+                  , 'freeze-col': col.freeze 
+                  }"
                 :style="[
                   row.isPrior ? { backgroundColor: 'var(--btn-bg)' } : {},
                   col.freeze ? { left: frozenLeftOffsets[col.key] } : {}
@@ -124,7 +122,7 @@
     </div>
 
     <!-- Entry Pad -->
-    <div v-if="store.isMobile.value" class="p-2 h-[36dvh]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
+    <div v-if="store.isMobile.value" class="p-2 h-[33dvh]" :style="{ backgroundColor: 'var(--keypad-bg)' }">
       <div v-if="activeColConfig?.type === 'number'" class="grid grid-cols-4 gap-2 h-full">
         <button v-for="n in [7, 8, 9]" :key="n" @click="pressKey(n)" class="keypad-btn">{{ n }}</button>
         <button @click="pressKey('back')" class="keypad-btn !bg-orange-500 !text-white">⌫</button>
@@ -1024,6 +1022,8 @@ th.freeze-col {
   color: var(--text-primary);
   border: 1px solid var(--border-color);
   border-radius: 6px;
+  /* height: 48px; */
+  padding: 0px;
   display: flex;
   align-items: center;
   justify-content: center;
