@@ -1,5 +1,5 @@
 /**
- * sync.ts
+ * sync_agol.ts
  *
  * Bidirectional sync between TallypadDB (Dexie/IndexedDB) and an ESRI Feature
  * Service REST endpoint.  Conflict resolution: local wins (last-write-wins on
@@ -21,6 +21,10 @@
  *   - tenyr: service field is SmallInteger, local type is number. Send null
  *     when undefined; no coercion required.
  */
+
+// TODO: Query adds/updates/deletes instead of full database
+// FIXME: Records with text exceeding the field width on the server will fail to sync.
+//        Capture these in a local table so the user can fix them
 
 import { db, IPlot, IGpsPoint, IPlotVisit, ITree, ITreeMeasurement, ILookups, IEdit } from './db';
 import { useAppStore } from './stores/appStore'

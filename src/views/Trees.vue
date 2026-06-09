@@ -23,28 +23,28 @@
         </div>
       </div>
     </div>
-    <header class="p-2 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
-      <div @click="backToPlots" class="m-0 p-0">&#9664</div>
+    <header class="p-2 border-b-2 flex items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
+      <div @click="backToPlots" class="m-0 pr-4 cursor-pointer text-xl">◀</div>
       <div>
         <!-- <h1 class="text-xs uppercase opacity-70 font-bold">Forest Inventory</h1> -->
-        <div class="font-mono text-sm font-black">
-          <div>PLOT: {{ store.selectedPlot.value?.plotid }}</div>
+        <div class="text-md font-bold">
+          <div>Plot: {{ store.selectedPlot.value?.plotid }}</div>
           <!-- <span class="opacity-40">|</span> -->
           <div class="flex gap-3">
-            <span>VISIT: {{ store.selectedVisit.value?.visit_number }}</span>
+            <span>Visit: {{ store.selectedVisit.value?.visit_number }}</span>
             <span class="opacity-60 font-normal text-sm">
               ({{ new Date(store.selectedVisit.value?.measurement_date || 0).toLocaleDateString() }})
             </span>
           </div>
         </div>
       </div>
-      <div class="relative">
-        <button v-if="store.isMobile.value && !isLocked" @click="requestWakeLock" class="mr-2 text-xl">
-          <span class="menu-icon">🔒</span>
+      <div class="ml-auto">
+        <button v-if="store.isMobile.value" @click="requestWakeLock" class="mr-2 text-xl">
+          <span class="menu-icon">{{ !isLocked ? '🔓' : '🔒' }}</span>
         </button>
-        <button @click="store.toggleDarkMode()" class="mr-4 text-xl">
+        <!-- <button @click="store.toggleDarkMode()" class="mr-4 text-xl">
           <span class="menu-icon">{{ store.isDarkMode.value ? '☀️' : '🌙' }}</span>
-        </button>
+        </button> -->
         <button @click.stop="toggleMenu" class="p-1 rounded text-xl font-bold min-w-7" :style="{ color: 'var(--text-primary)' }">
           ⁝
         </button>
@@ -191,7 +191,7 @@ const vFocus = {
   }
 };
 
-const activeSelectRef = ref<HTMLSelectElement | null>(null);
+const activeSelectRef = ref<HTMLSelectElement | HTMLSelectElement[] | null>(null);
 
 type Column = {
   label: string;
@@ -259,6 +259,7 @@ const spOptions = ref<string[]>([]);
 const stOptions = ref<string[]>([]);
 const ccOptions = ref<string[]>([]);
 const cOptions = ref<string[]>([]);
+const gpOptions = ref<string[]>([]);
 
 const frozenLeftOffsets = ref<Record<string, string>>({});
 const currentLeft = ref(0);
@@ -291,7 +292,7 @@ const columns = computed<Column[]>((): Column[] => [
   { label: 'AZ', key: 'az', type: 'number', visible: true, freeze: true},
   { label: 'HD', key: 'hd', type: 'number', visible: true, freeze: false},
   { label: 'SP', key: 'sp', type: 'select', options: spOptions.value, visible: true, freeze: true},
-  { label: 'GP', key: 'gp', type: 'select', visible: true, options: ['..','SN','DD']},
+  { label: 'GP', key: 'gp', type: 'select', visible: true, options: gpOptions.value },
   { label: 'DBH', key: 'dbh', type: 'number', visible: true, freeze: true },
   { label: 'GT', key: 'gt', type: 'number', visible: true },
   { label: 'ST', key: 's', type: 'select', options: stOptions.value, visible: true },
@@ -731,10 +732,12 @@ const backToPlots = () => {
 };
 
 const handleGlobalKeydown = async (event: KeyboardEvent) => {
+  // Skip key handling on mobile devices
   if (store.isMobile.value) return;
 
   const target = event.target as HTMLElement;
   if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+    console.log('input, skipping')
     return;
   }
 
@@ -773,12 +776,21 @@ const handleGlobalKeydown = async (event: KeyboardEvent) => {
     return;
   }
 
+  if (rows.value.length === 0) return;
+  const row = rows.value[activeRow.value];
+  const colConfig = activeColConfig.value;
+
   if (event.key === ' ' || event.code === 'Space') {
     if (colConfig && colConfig.type === 'select') {
       event.preventDefault();
-      if (activeSelectRef.value && typeof activeSelectRef.value.showPicker === 'function') {
+
+      const selectEl = Array.isArray(activeSelectRef.value) 
+        ? activeSelectRef.value[0] 
+        : activeSelectRef.value;
+
+      if (selectEl && typeof selectEl.showPicker === 'function') {
         try {
-          activeSelectRef.value.showPicker();
+          selectEl.showPicker();
         } catch (err) {
           console.error('Failed to show select picker:', err);
         }
@@ -787,11 +799,8 @@ const handleGlobalKeydown = async (event: KeyboardEvent) => {
     }
   }
 
-  if (rows.value.length === 0) return;
-  const row = rows.value[activeRow.value];
   if (!row || row.isPrior) return;
 
-  const colConfig = activeColConfig.value;
   if (!colConfig) return;
   const colKey = colConfig.key;
 
@@ -903,6 +912,7 @@ onMounted(async () => {
   stOptions.value = await loadLookup('s');
   ccOptions.value = await loadLookup('cc');
   cOptions.value = await loadLookup('c');
+  gpOptions.value = await loadLookup('gp');
 
   await loadRows();
 });
@@ -1029,7 +1039,7 @@ th {
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-color);
   border-right: 1px solid var(--border-color);
-  padding: 8px 6px;
+  padding: 4px 6px;
   font-weight: 800;
   z-index: 10;
 }
@@ -1154,7 +1164,7 @@ th.freeze-col {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background-color: rgba(0, 0, 0, 0.4);
+  background-color: rgba(0, 0, 0, 0.0);
   z-index: 9999;
   display: flex;
   align-items: center;
@@ -1168,10 +1178,10 @@ th.freeze-col {
 }
 
 .swipe-area {
-  margin-top: 2rem;
+  margin-top: 30rem;
   width: 300px;
   height: 60px;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(46, 46, 46, 0.6);
   border-radius: 30px;
   position: relative;
   overflow: hidden;

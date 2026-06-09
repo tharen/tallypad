@@ -12,7 +12,7 @@
       <!-- Plots List View -->
       <header class="p-4 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
         <div>
-          <h1 class="text-lg font-bold">Project Plots ({{ filteredPlots.length }})</h1>
+          <h1 class="text-md font-bold">Project Plots ({{ filteredPlots.length }})</h1>
           <div class="flex">
           <input
             v-model="searchQuery"

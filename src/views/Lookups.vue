@@ -1,15 +1,14 @@
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
     <!-- Header -->
-    <header class="p-4 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
-      <div @click="store.goToPlots()" class="m-0 p-0 cursor-pointer text-xl" title="Back">◀</div>
+    <header class="p-4 border-b-2 flex items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
+      <div @click="store.goToPlots()" class="m-0 pr-4 cursor-pointer text-xl" title="Back">◀</div>
       <div class="flex flex-col items-center">
-        <h1 class="text-xs uppercase opacity-70 font-bold">Manage Lookups</h1>
-        <div class="font-mono text-base font-black">LOOKUP TABLES</div>
+        <h1 class="text-md font-bold">Manage Lookups</h1>
       </div>
       <div class="w-6"></div> <!-- Spacer -->
     </header>
-
+    
     <!-- Filters Panel -->
     <div class="p-4 bg-[var(--cell-bg)] border-b-2 flex flex-col sm:flex-row gap-4 items-center justify-between" :style="{ borderColor: 'var(--border-color)' }">
       <div class="flex items-center gap-2 w-full sm:w-auto">
@@ -22,9 +21,6 @@
           <option v-for="f in uniqueFeatures" :key="f" :value="f">{{ f }}</option>
         </select>
       </div>
-      <button @click="addLookup" class="w-full sm:w-auto px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded font-bold transition-colors cursor-pointer text-sm">
-        ＋ Add Lookup
-      </button>
     </div>
 
     <!-- Table Section -->
@@ -34,11 +30,11 @@
           <table class="w-full border-collapse text-sm text-left">
             <thead>
               <tr class="bg-[var(--btn-bg)] border-b border-[var(--border-color)]">
-                <th class="p-3 w-1/4">Feature</th>
-                <th class="p-3 w-1/4">Code</th>
-                <th class="p-3 w-1/4">Value</th>
-                <th class="p-3 w-1/4">Description</th>
-                <th class="p-3 text-center w-20">Actions</th>
+                <th class="p-3 w-16 text-center">Feature</th>
+                <th class="p-3 w-16 text-center">Code</th>
+                <th class="p-3 w-40">Value</th>
+                <th class="p-3 w-auto">Description</th>
+                <th class="p-3 w-20 text-center">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -49,24 +45,27 @@
                 <td class="p-3">
                   <input
                     type="text"
+                    maxlength="20"
                     v-model="lookup.feature"
                     @change="saveLookup(lookup)"
                     placeholder="e.g. sp..."
-                    class="w-full bg-transparent border-b border-transparent focus:border-[var(--accent)] outline-none font-semibold"
+                    class="w-full text-center bg-transparent border-b border-transparent focus:border-[var(--accent)] outline-none font-semibold"
                   />
                 </td>
                 <td class="p-3">
                   <input
                     type="text"
                     v-model="lookup.code"
+                    maxlength="10"
                     @change="saveLookup(lookup)"
                     placeholder="e.g. DF..."
-                    class="w-full bg-transparent border-b border-transparent focus:border-[var(--accent)] outline-none font-mono"
+                    class="w-full text-center bg-transparent border-b border-transparent focus:border-[var(--accent)] outline-none font-mono"
                   />
                 </td>
                 <td class="p-3">
                   <input
                     type="text"
+                    maxlength="20"
                     v-model="lookup.value"
                     @change="saveLookup(lookup)"
                     placeholder="e.g. Douglas-fir..."
@@ -76,6 +75,7 @@
                 <td class="p-3">
                   <input
                     type="text"
+                    maxlength="40"
                     v-model="lookup.description"
                     @change="saveLookup(lookup)"
                     placeholder="Add description..."
@@ -96,6 +96,9 @@
           </table>
         </div>
       </div>
+      <button @click="addLookup" class="w-full sm:w-auto px-4 py-2 my-2 bg-green-600 hover:bg-green-700 text-white rounded font-bold transition-colors cursor-pointer text-sm">
+        ＋ Add Lookup
+      </button>
     </div>
   </div>
 </template>
