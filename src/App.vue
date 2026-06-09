@@ -47,6 +47,11 @@
               <span>Setup / Sync</span>
             </button>
 
+            <button class="menu-item" @click="store.goToLookups()">
+              <span class="menu-icon">🗂️</span>
+              <span>Manage Lookups</span>
+            </button>
+
             <button class="menu-item">
               <span class="menu-icon">ℹ️</span>
               <span>About</span>
@@ -132,6 +137,11 @@
       <!-- Setup View -->
       <Setup />
     </template>
+
+    <template v-else-if="store.currentView.value === 'lookups'">
+      <!-- Lookups View -->
+      <Lookups />
+    </template>
   </div>
 </template>
 
@@ -142,6 +152,7 @@ import { db, IPlot, IPlotVisit, ITree, ITreeMeasurement, renewDatabase } from '.
 import Trees from './views/Trees.vue';
 import Setup from './views/Setup.vue';
 import PlotDetails from './views/PlotDetails.vue';
+import Lookups from './views/Lookups.vue';
 
 const store = useAppStore();
 const dbVersion = ref(0);

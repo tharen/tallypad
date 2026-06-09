@@ -256,6 +256,9 @@ const lastCellRef = ref<{ r: number, c: number } | null>(null);
 const cellNeedsOverwrite = ref(false);
 
 const spOptions = ref<string[]>([]);
+const stOptions = ref<string[]>([]);
+const ccOptions = ref<string[]>([]);
+const cOptions = ref<string[]>([]);
 
 const frozenLeftOffsets = ref<Record<string, string>>({});
 const currentLeft = ref(0);
@@ -291,13 +294,13 @@ const columns = computed<Column[]>((): Column[] => [
   { label: 'GP', key: 'gp', type: 'select', visible: true, options: ['..','SN','DD']},
   { label: 'DBH', key: 'dbh', type: 'number', visible: true, freeze: true },
   { label: 'GT', key: 'gt', type: 'number', visible: true },
-  { label: 'ST', key: 's', type: 'select', options: [0,1,2,3,4,5,6,7,8,9], visible: true },
+  { label: 'ST', key: 's', type: 'select', options: stOptions.value, visible: true },
   { label: 'FC', key: 'fc', type: 'number', visible: true },
   { label: 'HT', key: 'ht', type: 'number', visible: true },
   { label: 'BD', key: 'upstd', type: 'number', visible: true },
   { label: 'BHT', key: 'upstht', type: 'number', visible: true },
   { label: 'CR', key: 'cr', type: 'number', visible: true },
-  { label: 'CC', key: 'cc', type: 'select', visible: true, options: [1,2,3,4,5] },
+  { label: 'CC', key: 'cc', type: 'select', visible: true, options: ccOptions.value },
   { label: 'D1', key: 'd1', type: 'number', visible: true },
   { label: 'S1', key: 's1', type: 'number', visible: true },
   { label: 'D2', key: 'd2', type: 'number', visible: true },
@@ -307,7 +310,7 @@ const columns = computed<Column[]>((): Column[] => [
   { label: 'Def1', key: 'def1', type: 'number', visible: true },
   { label: 'Def2', key: 'def2', type: 'number', visible: true },
   { label: 'Def3', key: 'def3', type: 'number', visible: true },
-  { label: 'CND', key: 'c', type: 'select', options: [1,2,3,4,5], visible: true },
+  { label: 'CND', key: 'c', type: 'select', options: cOptions.value, visible: true },
   { label: 'Age', key: 'age', type: 'number', visible: true },
   { label: 'BT', key: 'bt', type: 'number', visible: true },
   { label: '5yr', key: 'fiveyr', type: 'number', visible: true },
@@ -894,10 +897,12 @@ onMounted(async () => {
     if (table) resizeObserver.observe(table);
   }
 
-  // Load tree records from database
-  const spLookup = await db.lookups.where('feature').equals('sp').toArray();
-  spOptions.value = spLookup.map(item => item.code);
-  // console.log(spOptions.value);
+  // Load lookups
+  const loadLookup = async (feature: string) => (await db.lookups.where('feature').equals(feature).sortBy('code')).map(item => item.code);
+  spOptions.value = await loadLookup('sp');
+  stOptions.value = await loadLookup('s');
+  ccOptions.value = await loadLookup('cc');
+  cOptions.value = await loadLookup('c');
 
   await loadRows();
 });
