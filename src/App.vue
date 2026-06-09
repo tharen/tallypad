@@ -3,9 +3,6 @@
 // TODO: Add tree count, remarks, lat-lon on the plot card
 // TODO: Add stem map view with tree labels and tap to edit
 // TODO: Add GPS location update
-// TODO: Add edit visits view, pencil icon on plot card opens view with plot info and visits table
-// TODO: Add Google Maps navigation URL to plot card
-
 <template>
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
     <template v-if="store.currentView.value === 'plots'">
@@ -83,7 +80,12 @@
           <div class="w-full">
             <div class="flex justify-between items-start">
               <div>
-                <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
+                <div class="flex items-center gap-2">
+                  <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
+                  <button class="p-1 text-sm hover:opacity-100 cursor-pointer" @click.stop="waypointToPlot(plot)">⚑</button>
+                  <button class="p-1 text-sm hover:opacity-100 cursor-pointer" @click.stop="navigateToPlot(plot)">🚗</button>
+                </div>
+                
                 <div class="flex items-center gap-2">
                   <h2 class="text-2xl font-bold mb-3">{{ plot.plotid }}</h2>
                   <button @click.stop="store.goToPlotDetail(plot)" class="p-1 text-sm opacity-60 hover:opacity-100 cursor-pointer" title="Edit Plot & Visits">
@@ -335,6 +337,24 @@ onUnmounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', closeMenu);
 });
+
+const navigateToPlot = async (plot: IPlotWithVisits) => {
+  // Generate a Google maps navigation URL to the plot lat, lon and open in a new tab
+  const pnt = await db.plotGpsPoints.where('plot_guid').equals(plot.guid).last();
+  const lat = pnt?.latitude || 44.930423;
+  const lon = pnt?.longitude || -123.007152;
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
+  window.open(url, '_blank');
+}
+
+const waypointToPlot = async (plot: IPlotWithVisits) => {
+  // Generate a Google maps waypoint for the plot lat, lon and open in a new tab
+  const pnt = await db.plotGpsPoints.where('plot_guid').equals(plot.guid).last();
+  const lat = pnt?.latitude || 44.930423;
+  const lon = pnt?.longitude || -123.007152;
+  const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+  window.open(url, '_blank');
+}
 
 </script>
 
