@@ -307,9 +307,27 @@ const loadPlots = async () => {
   );
 };
 
-
+const handleBackButton = (event: Event) => {
+  if (store.currentView.value === 'plots') {
+    event.preventDefault();
+    if (isMenuOpen.value) {
+      isMenuOpen.value = false;
+    }
+    return
+  };
+  store.goToPreviousView();
+  window.history.pushState(null, '', window.location.href);
+  event.preventDefault();
+};
 
 onMounted(() => {
+  
+  // Push an initial state into the history stack so back button can be intercepted
+  window.history.pushState(null, '', window.location.href);
+
+  // Intercept the browser's back button
+  window.addEventListener('popstate', handleBackButton);
+
   dbVersion.value = db.verno;
   loadPlots();
   
@@ -392,6 +410,7 @@ onUnmounted(() => {
 });
 
 onBeforeUnmount(() => {
+  window.addEventListener('popstate', handleBackButton);
   document.removeEventListener('click', closeMenu);
 });
 
