@@ -2,7 +2,7 @@
   <div id="app-inner" :class="{ 'dark-mode': store.isDarkMode.value }">
     <!-- Header -->
     <header class="p-4 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
-      <div @click="store.goToPlots()" class="m-0 p-0 cursor-pointer text-xl" title="Back">◀</div>
+      <div @click="store.goToPreviousView()" class="m-0 p-0 cursor-pointer text-xl" title="Back">◀</div>
       <div class="flex flex-col items-center">
         <h1 class="text-xs uppercase opacity-70 font-bold">Plot Detail</h1>
         <div class="font-mono text-base font-black">PLOT: {{ plot?.plotid }}</div>

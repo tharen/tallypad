@@ -4,7 +4,7 @@ import { ITree, IPlot, IPlotVisit, ITreeMeasurement, ISyncError, db } from '../d
 export interface AppState {
   isMobile: boolean;
   currentView: 'plots' | 'trees' | 'setup' | 'plot_detail' | 'lookups' | 'sync_errors';
-  currentView: 'plots' | 'trees' | 'setup' | 'plot_detail' | 'lookups';
+  previousViews: ('plots' | 'trees' | 'setup' | 'plot_detail' | 'lookups' | 'sync_errors')[];
   selectedPlot: IPlot | null;
   selectedVisit: IPlotVisit | null;
   priorVisit: IPlotVisit | null;
@@ -33,6 +33,7 @@ const STORAGE_KEY_PLOT_SERVICE_URL = 'tallypad_plot_service_url';
 const state = ref<AppState>({
   isMobile: true,
   currentView: 'plots',
+  previousViews: [],
   selectedPlot: null,
   selectedVisit: null,
   priorVisit: null,
@@ -58,23 +59,45 @@ export const useAppStore = () => {
     state.value.currentView = 'trees';
   };
 
+  const pushCurrentView = () => {
+    if (state.value.currentView) {
+      state.value.previousViews.push(state.value.currentView);
+    }
+  };
+
+  const goToPreviousView = () => {
+    if (state.value.previousViews.length > 0) {
+      const previousView = state.value.previousViews.pop();
+      if (previousView) {
+        state.value.currentView = previousView;
+      }
+    } else {
+      goToPlots();
+    }
+  };
+
   const goToPlots = () => {
+    pushCurrentView();
     state.value.currentView = 'plots';
   };
   
   const goToSetup = () => {
+    pushCurrentView();
     state.value.currentView = 'setup';
   };
 
   const goToLookups = () => {
+    pushCurrentView();
     state.value.currentView = 'lookups';
   };
 
   const goToSyncErrors = () => {
+    pushCurrentView();
     state.value.currentView = 'sync_errors';
   };
 
   const goToPlotDetail = (plot: IPlot) => {
+    pushCurrentView();
     state.value.selectedPlot = plot;
     state.value.currentView = 'plot_detail';
   };
@@ -229,6 +252,7 @@ export const useAppStore = () => {
     refreshEsriToken,
     hasSyncErrors,
     checkSyncErrors,
-    refreshEsriToken
+    pushCurrentView,
+    goToPreviousView,
   };
 };

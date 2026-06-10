@@ -24,7 +24,7 @@
       </div>
     </div>
     <header class="p-2 border-b-2 flex items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
-      <div @click="backToPlots" class="m-0 pr-4 cursor-pointer text-xl">◀</div>
+      <div @click="store.goToPreviousView()" class="m-0 pr-4 cursor-pointer text-xl">◀</div>
       <div>
         <!-- <h1 class="text-xs uppercase opacity-70 font-bold">Forest Inventory</h1> -->
         <div class="text-md font-bold">
@@ -38,22 +38,21 @@
           </div>
         </div>
       </div>
-      <div class="ml-auto">
-        <button v-if="store.isMobile.value" @click="requestWakeLock" class="mr-2 text-xl">
+      <div class="relative ml-auto flex items-center gap-2">
+        <button v-if="store.isMobile.value" @click="requestWakeLock" class="menu-item text-xl">
           <span class="menu-icon">{{ !isLocked ? '🔓' : '🔒' }}</span>
         </button>
-        <!-- <button @click="store.toggleDarkMode()" class="mr-4 text-xl">
+        <button @click="toggleFullscreen" class="menu-item text-xl">
+          <span class="menu-icon">{{ isFullscreen ? '🗕' : '🗖' }}</span>
+        </button>
+        <button @click="store.toggleDarkMode()" class="menu-item text-xl">
           <span class="menu-icon">{{ store.isDarkMode.value ? '☀️' : '🌙' }}</span>
-        </button> -->
-        <button @click.stop="toggleMenu" class="p-1 rounded text-xl font-bold min-w-7" :style="{ color: 'var(--text-primary)' }">
+        </button>
+        <button @click.stop="toggleMenu" class="p-1 rounded menu-item text-xl font-bold min-w-7" :style="{ color: 'var(--text-primary)' }">
           ⁝
         </button>
 
         <div v-if="isMenuOpen" class="kebab-menu" @click.stop>
-          <button @click="backToPlots" class="menu-item">
-            <span class="menu-icon">←</span>
-            <span>Back to plots</span>
-          </button>
           <button @click="toggleFullscreen" class="menu-item">
             <span class="menu-icon">⛶</span>
             <span>{{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}</span>
@@ -711,6 +710,7 @@ const updateFullscreenState = () => {
 };
 
 const toggleMenu = () => {
+  console.log('toggleMenu', !isMenuOpen.value);
   isMenuOpen.value = !isMenuOpen.value;
 };
 
@@ -724,11 +724,6 @@ const toggleFullscreen = async () => {
   } else {
     await document.documentElement.requestFullscreen();
   }
-};
-
-const backToPlots = () => {
-  closeMenu();
-  store.goToPlots();
 };
 
 const handleGlobalKeydown = async (event: KeyboardEvent) => {
@@ -1121,41 +1116,6 @@ th.freeze-col {
 .active-chip {
   background: var(--accent) !important;
   color: white !important;
-}
-
-.kebab-menu {
-  position: absolute;
-  right: -4px;
-  top: calc(100% + 0px);
-  width: 180px;
-  border: 1px solid var(--border-color);
-  border-radius: 0px;
-  background: var(--btn-bg);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-  z-index: 20;
-}
-
-.menu-item {
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: inherit;
-  padding: 0.75rem 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.95rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.menu-item:hover {
-  background: rgba(59, 130, 246, 0.12);
-}
-
-.menu-icon {
-  width: 1.25rem;
-  text-align: center;
 }
 
 .lock-overlay {

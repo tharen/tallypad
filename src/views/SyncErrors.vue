@@ -3,7 +3,7 @@
     <!-- Header -->
     <header class="p-4 border-b-2 flex items-center justify-between" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
       <div class="flex items-center">
-        <div @click="store.goToSetup()" class="m-0 pr-4 cursor-pointer text-xl" title="Back to Setup">◀</div>
+        <div @click="store.goToPreviousView()" class="m-0 pr-4 cursor-pointer text-xl" title="Back to Setup">◀</div>
         <h1 class="text-md font-bold">Sync Errors Log</h1>
       </div>
       <button 

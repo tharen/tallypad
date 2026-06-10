@@ -43,14 +43,14 @@
             </div>
           </div>
         </div>
-        <div class="relative gap-4 flex items-center">
-          <button v-show="store.hasSyncErrors.value" class="text-xl" @click="store.goToSyncErrors()">
+        <div class="relative ml-4 gap-2 flex items-center">
+          <button v-show="store.hasSyncErrors.value" class="menu-item text-xl" @click="store.goToSyncErrors()">
             <span class="menu-icon">⚠️</span>
           </button>
-          <button @click="store.toggleDarkMode()" class="text-xl">
+          <button @click="store.toggleDarkMode()" class="menu-item text-xl">
             <span class="menu-icon">{{ store.isDarkMode.value ? '☀️' : '🌙' }}</span>
           </button>
-          <button @click.stop="toggleMenu" class="p-2 rounded text-xl font-bold" :style="{ color: 'var(--text-primary)' }">
+          <button @click.stop="toggleMenu" class="p-2 rounded menu-item text-xl font-bold" :style="{ color: 'var(--text-primary)' }">
             ⁝
           </button>
           <div v-if="isMenuOpen" class="kebab-menu" @click.stop>
@@ -66,7 +66,7 @@
 
             <button class="menu-item" @click="store.goToLookups()">
               <span class="menu-icon">🗂️</span>
-              <span>Manage Lookups</span>
+              <span>Edit Lookups</span>
             </button>
 
             <button class="menu-item" @click="store.goToSyncErrors()">
@@ -506,43 +506,6 @@ const waypointToPlot = async (plot: IPlotWithVisits) => {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
-}
-
-.kebab-menu {
-  position: absolute;
-  right: -4px;
-  top: calc(100% + 8px);
-  width: 180px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--btn-bg);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-  z-index: 20;
-  overflow: hidden;
-}
-
-.menu-item {
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: inherit;
-  padding: 0.75rem 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.95rem;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.menu-item:hover {
-  background: rgba(59, 130, 246, 0.12);
-}
-
-.menu-icon {
-  width: 1.25rem;
-  text-align: center;
 }
 
 </style>
