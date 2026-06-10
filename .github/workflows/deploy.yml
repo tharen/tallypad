@@ -1,0 +1,51 @@
+name: Deploy Vue to GitHub Pages
+
+on:
+  push:
+    branches: [ "main", "dev", "growmon" ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    env:
+      APP_PREFIX: ${{ github.ref_name == 'main' && 'app' || github.ref_name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Build tallypad
+        working-directory: .
+        env:
+          VITE_ESRI_CLIENT_ID: ${{ vars.VITE_ESRI_CLIENT_ID }}
+        run: |
+          npm ci --legacy-peer-deps
+          npm run build
+          echo "Deploy for env.APP_PREFIX = ${{ env.APP_PREFIX }}"
+          ls -la dist
+          mkdir -p ./deploy
+          cp -r dist/* ./deploy
+          echo "tree deploy"
+          tree ./deploy          
+        
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4.0.0
+        with:
+          path: './deploy'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,67 @@
+/* @tailwind base;
+@tailwind components;
+@tailwind utilities; */
+@import "tailwindcss";
+
+/* Custom app styles can still be written in App.vue */
+
+:root {
+  --bg-primary: #ffffff;
+  --text-primary: #000000;
+  --border-color: #333333;
+  --accent: #4882fd;
+  --cell-bg: #ffffff;
+  --keypad-bg: #e5e7eb;
+  --btn-bg: #ebebeb;
+  --header-bg: #ffffff;
+  --active-cell-bg: rgb(198, 217, 248);
+}
+
+.dark-mode {
+  --bg-primary: #000000;
+  --text-primary: #ffffff;
+  --border-color: #444444;
+  --accent: #4882fd;
+  --cell-bg: #1a1a1a;
+  --keypad-bg: #111111;
+  --btn-bg: #222222;
+  --header-bg: #000000;
+  --active-cell-bg: rgb(97, 158, 255);
+}
+
+.kebab-menu {
+  position: absolute;
+  right: -4px;
+  top: calc(100% + 8px);
+  width: 180px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--btn-bg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  overflow: hidden;
+}
+
+.menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0.25rem .5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  /* font-size: 0.95rem; */
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.menu-item:hover {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.menu-icon {
+  width: 1.25rem;
+  text-align: center;
+}

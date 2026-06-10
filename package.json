@@ -1,0 +1,27 @@
+{
+  "name": "tallypad",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "dexie": "^4.4.2",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "@types/dom-screen-wake-lock": "^1.0.3",
+    "@types/node": "^20.14.2",
+    "@vitejs/plugin-vue": "^4.3.0",
+    "@vue/compiler-sfc": "^3.4.0",
+    "autoprefixer": "^10.5.0",
+    "tailwindcss": "^4.2.4",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0",
+    "vite-plugin-pwa": "^1.3.0"
+  }
+}
