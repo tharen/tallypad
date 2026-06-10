@@ -101,26 +101,26 @@
           v-for="plot in filteredPlots"
           :key="`${plot.plotid}`"
           class="plot-card"
-          :style="{ backgroundColor: 'var(--cell-bg)', borderColor: 'var(--border-color)' }">
+          :style="{ backgroundColor: 'var(--cell-bg)', borderColor: 'var(--border-color)' }"
+          @click.stop="store.goToPlotDetail(plot)"
+          >
           <div class="w-full">
             <div class="flex justify-between items-start">
               <div>
-                <div class="flex items-center gap-2">
-                  <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
-                  <button class="p-1 text-sm hover:opacity-100 cursor-pointer" @click.stop="waypointToPlot(plot)">⚑</button>
-                  <button class="p-1 text-sm hover:opacity-100 cursor-pointer" @click.stop="navigateToPlot(plot)">🚗</button>
-                </div>
-                
+                <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
                 <div class="flex items-center gap-2">
                   <h2 class="text-2xl font-bold mb-3">{{ plot.plotid }}</h2>
-                  <button @click.stop="store.goToPlotDetail(plot)" class="p-1 text-sm opacity-60 hover:opacity-100 cursor-pointer" title="Edit Plot & Visits">
-                    ✏️
-                  </button>
                 </div>
+                <div class="text-sm opacity-70 tracking-wide">Coordinates</div>
+                <h2 class="text-sm">{{ plot.coords }}</h2>
               </div>
               <div class="text-right">
                 <div class="text-sm opacity-70 uppercase tracking-wide">Trees</div>
                 <h2 class="text-2xl font-bold mb-3">{{ plot.latestTreeCount }}</h2>
+                <div class="flex items-center gap-2">
+                  <button class="p-1 text-sm hover:opacity-100 cursor-pointer" @click.stop="waypointToPlot(plot)">⚑</button>
+                  <button class="p-1 text-sm hover:opacity-100 cursor-pointer" @click.stop="navigateToPlot(plot)">🚗</button>
+                </div>
               </div>
             </div>
             <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar mt-4">
@@ -196,6 +196,7 @@ const isMenuOpen = ref(false);
 interface IPlotWithVisits extends IPlot {
   visits: IPlotVisit[];
   latestTreeCount: number;
+  coords: string;
 }
 const plots = ref<IPlotWithVisits[]>([]);
 const statusQuery = ref('');
@@ -293,7 +294,15 @@ const loadPlots = async () => {
           .count();
       }
 
-      return { ...plot, visits, latestTreeCount } as IPlotWithVisits;
+      let coords = 'No coordinates';
+      const gpsPoint = await db.plotGpsPoints.where('plot_guid').equals(plot.guid).last();
+      if (gpsPoint) {
+        coords = `${gpsPoint.latitude.toFixed(5)}, ${gpsPoint.longitude.toFixed(5)}`;
+      } else if (plot.planned_latitude && plot.planned_longitude) {
+        coords = `${plot.planned_latitude.toFixed(5)}, ${plot.planned_longitude.toFixed(5)}`;
+      }
+
+      return { ...plot, visits, latestTreeCount, coords } as IPlotWithVisits;
     })
   );
 };
@@ -386,20 +395,24 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', closeMenu);
 });
 
+const getPlotCoords = async (plot: IPlotWithVisits): Promise<[number, number]> => {
+  const pnt = await db.plotGpsPoints.where('plot_guid').equals(plot.guid).last();
+  return [
+    pnt?.latitude || 44.930423,
+    pnt?.longitude || -123.007152
+  ];
+};
+
 const navigateToPlot = async (plot: IPlotWithVisits) => {
   // Generate a Google maps navigation URL to the plot lat, lon and open in a new tab
-  const pnt = await db.plotGpsPoints.where('plot_guid').equals(plot.guid).last();
-  const lat = pnt?.latitude || 44.930423;
-  const lon = pnt?.longitude || -123.007152;
+  const [ lat, lon ] = await getPlotCoords(plot);
   const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
   window.open(url, '_blank');
 }
 
 const waypointToPlot = async (plot: IPlotWithVisits) => {
   // Generate a Google maps waypoint for the plot lat, lon and open in a new tab
-  const pnt = await db.plotGpsPoints.where('plot_guid').equals(plot.guid).last();
-  const lat = pnt?.latitude || 44.930423;
-  const lon = pnt?.longitude || -123.007152;
+  const [ lat, lon ] = await getPlotCoords(plot);
   const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
   window.open(url, '_blank');
 }
@@ -425,7 +438,7 @@ const waypointToPlot = async (plot: IPlotWithVisits) => {
   align-items: flex-start;
   border: 2px solid;
   border-radius: 12px;
-  padding: 24px;
+  padding: 12px;
   gap: 16px;
   cursor: pointer;
   transition: all 0.2s ease;
