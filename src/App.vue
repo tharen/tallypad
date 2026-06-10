@@ -109,14 +109,14 @@
               <div>
                 <div class="text-sm opacity-70 uppercase tracking-wide">Plot</div>
                 <div class="flex items-center gap-2">
-                  <h2 class="text-2xl font-bold mb-3">{{ plot.plotid }}</h2>
+                  <h2 class="text-xl font-bold mb-3">{{ plot.plotid }}</h2>
                 </div>
                 <div class="text-sm opacity-70 tracking-wide">Coordinates</div>
                 <h2 class="text-sm">{{ plot.coords }}</h2>
               </div>
               <div class="text-right">
                 <div class="text-sm opacity-70 uppercase tracking-wide">Trees</div>
-                <h2 class="text-2xl font-bold mb-3">{{ plot.latestTreeCount }}</h2>
+                <h2 class="text-xl font-bold mb-3">{{ plot.latestTreeCount }}</h2>
                 <div class="flex items-center gap-2">
                   <button class="p-1 text-sm hover:opacity-100 cursor-pointer" @click.stop="waypointToPlot(plot)">⚑</button>
                   <button class="p-1 text-sm hover:opacity-100 cursor-pointer" @click.stop="navigateToPlot(plot)">🚗</button>

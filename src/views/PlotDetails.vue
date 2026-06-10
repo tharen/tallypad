@@ -32,88 +32,93 @@
     <div class="flex-1 p-6 space-y-4 overflow-y-auto">
       <div class="flex justify-between items-center">
         <h2 class="text-lg font-bold">Visits List</h2>
+      </div>
+
+      <!-- Visits Cards List -->
+      <div v-if="visits.length === 0" class="p-6 text-center opacity-60 italic border border-[var(--border-color)] rounded-lg bg-[var(--cell-bg)]">
+        No visits recorded for this plot.
+      </div>
+      <div v-else class="grid grid-cols-1 gap-4">
+        <div v-for="visit in visits" :key="visit.guid" class="p-5 rounded-lg border border-[var(--border-color)] bg-[var(--cell-bg)] flex flex-col space-y-4 shadow-sm hover:shadow-md transition-shadow relative">
+          
+          <!-- Card Header: Visit Number, Status, Delete -->
+          <div class="flex items-center justify-between pb-3 border-b border-[var(--border-color)]">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold opacity-60">Visit</span>
+              <span class="px-1.5 py-0.5 text-center font-bold text-[var(--text-primary)">{{ visit.visit_number }}</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-bold opacity-60">Status</span>
+              <select
+                v-model="visit.status"
+                @change="saveVisit(visit)"
+                class="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded px-2 py-0.5 font-semibold text-xs text-[var(--text-primary)] cursor-pointer outline-none focus:border-[var(--accent)]"
+              >
+                <option value="Planned">Planned</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Dropped">Dropped</option>
+                <option value="Completed">Completed</option>
+              </select>
+              
+              <button
+                @click="deleteVisitRecord(visit)"
+                class="text-red-500 hover:text-red-700 font-bold transition-colors cursor-pointer text-lg p-1"
+                title="Delete Visit"
+              >
+                🗑️
+              </button>
+            </div>
+          </div>
+
+          <!-- Card Body: Date, Crew, Remarks -->
+          <div class="grid grid-cols-2 md:grid-cols-2 gap-4">
+              <div class="flex flex-col gap-1.5">
+                <label class="text-xs font-bold opacity-60">Measurement Date</label>
+                <input
+                  type="date"
+                  :value="formatDateForInput(visit.measurement_date)"
+                  @change="updateMeasurementDate(visit, $event)"
+                  class="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm font-mono outline-none focus:border-[var(--accent)] text-[var(--text-primary)] cursor-pointer"
+                />
+              </div>
+
+              <div class="flex flex-col gap-1.5">
+                <label class="text-xs font-bold opacity-60">Crew Members</label>
+                <input
+                  type="text"
+                  v-model="visit.crew"
+                  @change="saveVisit(visit)"
+                  placeholder="Enter crew name(s)..."
+                  class="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text-primary)]"
+                />
+              </div>
+            
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-bold opacity-60">Remarks</label>
+            <textarea
+              v-model="visit.remarks"
+              @change="saveVisit(visit)"
+              placeholder="Enter visit remarks..."
+              rows="2"
+              class="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded px-3 py-2 text-sm outline-none focus:border-[var(--accent)] text-[var(--text-primary)] resize-none"
+            ></textarea>
+          </div>
+
+          <!-- Card Actions: View Trees -->
+          <div class="pt-2 flex justify-end">
+            <button 
+              @click="openVisitTrees(visit)"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              🌲 Edit Tree Data
+            </button>
+          </div>
+        </div>
         <button v-show="store.allowAddVisits.value" @click="addVisit" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded font-bold transition-colors cursor-pointer text-sm">
           ＋ Add Visit
         </button>
-      </div>
-
-      <div class="border border-[var(--border-color)] rounded-lg overflow-hidden bg-[var(--cell-bg)]">
-        <div class="overflow-x-auto w-full">
-          <table class="w-full border-collapse text-sm text-left">
-            <thead>
-              <tr class="bg-[var(--btn-bg)] border-b border-[var(--border-color)]">
-                <th class="p-3 text-center w-24">Visit #</th>
-                <th class="p-3 text-center">Measurement Date</th>
-                <th class="p-3 text-center">Status</th>
-                <th class="p-3">Crew</th>
-                <th class="p-3">Remarks</th>
-                <th class="p-3 text-center w-20">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="visits.length === 0">
-                <td colspan="6" class="p-6 text-center opacity-60 italic">No visits recorded for this plot.</td>
-              </tr>
-              <tr v-for="visit in visits" :key="visit.guid" class="border-b border-[var(--border-color)] hover:bg-[var(--btn-bg)]/20">
-                <td class="p-3 text-center">
-                  <input
-                    type="number"
-                    v-model.number="visit.visit_number"
-                    @change="saveVisit(visit)"
-                    class="w-full bg-transparent border-b border-transparent focus:border-[var(--accent)] outline-none text-center font-semibold"
-                  />
-                </td>
-                <td class="p-3 text-center">
-                  <input
-                    type="date"
-                    :value="formatDateForInput(visit.measurement_date)"
-                    @change="updateMeasurementDate(visit, $event)"
-                    class="bg-transparent border-b border-transparent focus:border-[var(--accent)] outline-none text-center font-mono"
-                  />
-                </td>
-                <td class="p-3 text-center">
-                  <select
-                    v-model="visit.status"
-                    @change="saveVisit(visit)"
-                    class="bg-transparent border-b border-transparent focus:border-[var(--accent)] outline-none text-center font-semibold text-[var(--text-primary)] cursor-pointer"
-                  >
-                    <option value="Planned">Planned</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Dropped">Dropped</option>
-                    <option value="Completed">Completed</option>
-                  </select>
-                </td>
-                <td class="p-3">
-                  <input
-                    type="text"
-                    v-model="visit.crew"
-                    @change="saveVisit(visit)"
-                    placeholder="Crew name(s)..."
-                    class="w-full bg-transparent border-b border-transparent focus:border-[var(--accent)] outline-none"
-                  />
-                </td>
-                <td class="p-3">
-                  <input
-                    type="text"
-                    v-model="visit.remarks"
-                    @change="saveVisit(visit)"
-                    placeholder="Enter remarks..."
-                    class="w-full bg-transparent border-b border-transparent focus:border-[var(--accent)] outline-none"
-                  />
-                </td>
-                <td class="p-3 text-center">
-                  <button
-                    @click="deleteVisitRecord(visit)"
-                    class="text-red-500 hover:text-red-700 font-bold transition-colors cursor-pointer text-lg p-1"
-                    title="Delete Visit"
-                  >
-                    🗑️
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </div>
     </div>
   </div>
@@ -216,6 +221,15 @@ const saveVisit = async (visit: IPlotVisit) => {
   await loadVisits();
 };
 
+const openVisitTrees = async (visit: IPlotVisit) => {
+  if (!plot.value) return;
+  const [trees, measurements] = await Promise.all([
+    db.plotTrees.where('plot_guid').equals(plot.value.guid).toArray(),
+    db.treeMeasurements.where('visit_guid').equals(visit.guid).toArray(),
+  ]);
+  store.goToTrees(plot.value, visit, trees, measurements);
+};
+
 const addVisit = async () => {
   if (!plot.value) return;
 
@@ -254,16 +268,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-table {
-  border: none;
-}
-th {
-  background: var(--btn-bg);
-  position: static;
-}
-td {
-  background: transparent;
-}
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
