@@ -8,7 +8,7 @@
       <div class="w-6"></div> <!-- Spacer -->
     </header>
 
-    <div class="max-w-100">
+    <div class="max-w-100 overflow-y-auto">
       <div class="flex-1 p-6 space-y-6 overflow-y-auto">
         <section class="space-y-4">
           <div class="flex flex-col gap-2">
@@ -77,6 +77,37 @@
           <button @click="wipeDB()" class="w-full py-2 border border-red-500 text-red-500 rounded-md font-bold">
             Wipe Local Database
           </button>
+        </section>
+
+        <section class="p-6 space-y-4 border-t border-[var(--border-color)]">
+          <h2 class="text-lg font-bold">Permissions & UI</h2>
+          <div class="space-y-3">
+            <label class="flex items-center gap-3 cursor-pointer p-3 bg-[var(--cell-bg)] rounded-md border border-[var(--border-color)]">
+              <input 
+                type="checkbox" 
+                :checked="store.allowAddPlots.value" 
+                class="h-5 w-5 rounded border-gray-300 text-[var(--accent)] focus:ring-[var(--accent)]"
+                @change="store.toggleAllowAddPlots()"
+              />
+              <div class="flex flex-col">
+                <span class="font-bold text-sm">Allow Adding Plots</span>
+                <span class="text-xs opacity-60">Enable the "Add Plot" button on the main dashboard.</span>
+              </div>
+            </label>
+
+            <label class="flex items-center gap-3 cursor-pointer p-3 bg-[var(--cell-bg)] rounded-md border border-[var(--border-color)]">
+              <input 
+                type="checkbox" 
+                :checked="store.allowAddVisits.value" 
+                class="h-5 w-5 rounded border-gray-300 text-[var(--accent)] focus:ring-[var(--accent)]"
+                @change="store.toggleAllowAddVisits()"
+              />
+              <div class="flex flex-col">
+                <span class="font-bold text-sm">Allow Adding Visits</span>
+                <span class="text-xs opacity-60">Enable the "Add Visit" button on plot cards and details.</span>
+              </div>
+            </label>
+          </div>
         </section>
 
       </div>

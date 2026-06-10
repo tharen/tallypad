@@ -87,7 +87,7 @@
         <div v-if="plots.length === 0" class="flex items-center justify-center h-full text-center">
           <div>
             <p class="text-xl font-bold mb-2">No plots found</p>
-            <div v-show="store.allowAddPlots">
+            <div v-show="store.allowAddPlots.value">
               <p class="opacity-70 mb-4">Add a new project plot to get started</p>
               <button @click="addNewPlot" class="px-6 py-3 rounded bg-blue-600 text-white font-bold hover:bg-blue-700">
                 ＋ Add Plot
@@ -133,7 +133,7 @@
                 {{ new Date(visit.measurement_date|| 0).toLocaleDateString()}}
               </button>
               <button 
-                v-show="store.allowAddVisits" 
+                v-show="store.allowAddVisits.value" 
                 @click.stop="addNewVisit(plot)"
                 class="visit-chip !bg-green-600/10 !text-green-600 !border-green-600/30 border-dashed">
                 ＋ Visit
@@ -143,7 +143,7 @@
         </div>
         </div>
 
-        <div v-show="store.allowAddPlots" class="flex justify-center pt-4">
+        <div v-show="store.allowAddPlots.value" class="flex justify-center pt-4">
           <button @click="addNewPlot" class="nav-btn text-green-600 font-black text-2xl">
             ＋ Add Plot
           </button>

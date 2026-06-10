@@ -32,7 +32,7 @@
     <div class="flex-1 p-6 space-y-4 overflow-y-auto">
       <div class="flex justify-between items-center">
         <h2 class="text-lg font-bold">Visits List</h2>
-        <button @click="addVisit" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded font-bold transition-colors cursor-pointer text-sm">
+        <button v-show="store.allowAddVisits.value" @click="addVisit" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded font-bold transition-colors cursor-pointer text-sm">
           ＋ Add Visit
         </button>
       </div>
