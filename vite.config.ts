@@ -5,7 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig(() => {
   // Using a trailing slash for the base path ensures proper PWA scoping on GitHub Pages
-  const root = '/tallypad/';
+  const root = '';
 
   return {
     base: root,
