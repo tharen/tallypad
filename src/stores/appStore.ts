@@ -11,10 +11,12 @@ export interface AppState {
   measurements: ITreeMeasurement[];
   isDarkMode: boolean;
   allowAddPlots: boolean;
+  allowAddVisits: boolean;
   userName: string;
   esriToken: string | null;
   esriRefreshToken: string | null;
   tokenExpiration: number | null;
+  plotServiceUrl: string;
 }
 
 const STORAGE_KEY_USER = 'tallypad_user';
@@ -23,6 +25,8 @@ const STORAGE_KEY_REFRESH_TOKEN = 'tallypad_refresh_token';
 const STORAGE_KEY_EXPIRY = 'tallypad_expiry';
 const STORAGE_KEY_DARK_MODE = 'tallypad_dark_mode';
 const STORAGE_KEY_ADD_PLOTS = 'tallypad_add_plots';
+const STORAGE_KEY_ADD_VISITS = 'tallypad_add_visits';
+const STORAGE_KEY_PLOT_SERVICE_URL = 'tallypad_plot_service_url';
 
 const state = ref<AppState>({
   isMobile: true,
@@ -34,10 +38,12 @@ const state = ref<AppState>({
   measurements: [],
   isDarkMode: localStorage.getItem(STORAGE_KEY_DARK_MODE) === 'true',
   allowAddPlots: localStorage.getItem(STORAGE_KEY_ADD_PLOTS) === 'true',
+  allowAddVisits: localStorage.getItem(STORAGE_KEY_ADD_VISITS) === 'true',
   userName: localStorage.getItem(STORAGE_KEY_USER) || '',
   esriToken: localStorage.getItem(STORAGE_KEY_TOKEN),
   esriRefreshToken: localStorage.getItem(STORAGE_KEY_REFRESH_TOKEN),
   tokenExpiration: Number(localStorage.getItem(STORAGE_KEY_EXPIRY)) || null,
+  plotServiceUrl: localStorage.getItem(STORAGE_KEY_PLOT_SERVICE_URL) || import.meta.env.VITE_PLOT_SERVICE_URL,
 });
 
 export const useAppStore = () => {
@@ -76,6 +82,11 @@ export const useAppStore = () => {
     localStorage.setItem(STORAGE_KEY_ADD_PLOTS, String(state.value.allowAddPlots));
   };
 
+  const toggleAllowAddVisits = () => {
+    state.value.allowAddVisits = !state.value.allowAddVisits;
+    localStorage.setItem(STORAGE_KEY_ADD_VISITS, String(state.value.allowAddVisits));
+  };
+
   const checkDeviceType = () => {
     if (typeof window === "undefined") {
       state.value.isMobile = false;
@@ -100,6 +111,9 @@ export const useAppStore = () => {
   const isDarkMode = computed(() => state.value.isDarkMode);
   const esriToken = computed(() => state.value.esriToken);
   const esriRefreshToken = computed(() => state.value.esriRefreshToken);
+  const plotServiceUrl = computed(() => state.value.plotServiceUrl);
+  const allowAddPlots = computed(() => state.value.allowAddPlots);
+  const allowAddVisits = computed(() => state.value.allowAddVisits);
   
   const isTokenExpired = computed(() => {
     if (!state.value.tokenExpiration) return false;
@@ -185,6 +199,11 @@ export const useAppStore = () => {
     esriRefreshToken,
     isTokenExpired,
     userName,
+    plotServiceUrl,
+    allowAddPlots,
+    allowAddVisits,
+    toggleAllowAddPlots,
+    toggleAllowAddVisits,
     setEsriAuth,
     logoutEsri,
     refreshEsriToken

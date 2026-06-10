@@ -76,8 +76,7 @@ const store = useAppStore();
 // ---------------------------------------------------------------------------
 // Service configuration
 // ---------------------------------------------------------------------------
-const SERVICE_URL =
-  'https://services.arcgis.com/uUvqNMGPm7axC2dD/arcgis/rest/services/Growth_Monitoring_Plots/FeatureServer';
+const SERVICE_URL = import.meta.env.VITE_PLOT_SERVICE_URL;
 
 // Layer / table IDs from grow_mon_svc.json
 const LAYER = {

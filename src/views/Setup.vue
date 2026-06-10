@@ -24,7 +24,14 @@
 
         <section class="space-y-4">
           <h2 class="text-lg font-bold">Syncronization</h2>
-          
+          <div class="flex flex-col gap-2">
+            <label class="text-xs opacity-60">Plot Service URL</label>
+            <input 
+              v-model="store.plotServiceUrl.value" 
+              placeholder="Enter URL..." 
+              class="p-3 bg-[var(--cell-bg)] border border-[var(--border-color)] rounded-md focus:border-[var(--accent)] outline-none"
+            />
+          </div>
           <div v-if="!store.esriToken.value" class="p-4 rounded-lg bg-[var(--btn-bg)] border border-[var(--border-color)]">
             <p class="text-sm mb-4 opacity-80">Log in using your ESRI ArcGIS Online credentials.</p>
             <button @click="login" class="w-full py-3 bg-blue-600 text-white rounded-md font-bold hover:bg-blue-700 transition-colors">
@@ -54,14 +61,14 @@
         <section class="space-y-4">
           <h2 class="text-lg font-bold">Database</h2>
           <button @click="exportDB()" class="w-full py-2 border rounded-md font-bold">
-            Export
+            Export Plot Data
           </button>
           <button @click="importDB()" class="w-full py-2 border rounded-md font-bold">
-            Import
+            Import Plot Data
           </button>
           <hr class="border-red-500">
           <button @click="wipeDB()" class="w-full py-2 border border-red-500 text-red-500 rounded-md font-bold">
-            Wipe Database
+            Wipe Local Database
           </button>
         </section>
 

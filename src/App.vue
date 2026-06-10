@@ -125,6 +125,7 @@
                 {{ new Date(visit.measurement_date|| 0).toLocaleDateString()}}
               </button>
               <button 
+                v-show="store.allowAddVisits" 
                 @click.stop="addNewVisit(plot)"
                 class="visit-chip !bg-green-600/10 !text-green-600 !border-green-600/30 border-dashed">
                 ＋ Visit
