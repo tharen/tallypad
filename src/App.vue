@@ -10,20 +10,37 @@
       <header class="p-4 border-b-2 flex justify-between items-center" :style="{ borderColor: 'var(--border-color)', backgroundColor: 'var(--header-bg)' }">
         <div>
           <h1 class="text-md font-bold">Project Plots ({{ filteredPlots.length }})</h1>
-          <div class="flex">
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Filter plot ID..."
-            class="text-sm bg-transparent border-b border-[var(--border-color)] focus:border-[var(--accent)] outline-none w-full max-w-[200px] mt-1"
-          />
-          <button 
-            v-if="searchQuery" 
-            @click="searchQuery = ''" 
-            class="ml-1 px-1 text-sm opacity-50 hover:opacity-100 transition-opacity"
-          >
-            ✕
-          </button>
+          <div class="flex gap-2">
+            <div class="flex">
+              <input
+                v-model="statusQuery"
+                type="text"
+                placeholder="Visit Status..."
+                class="text-sm bg-transparent border-b border-[var(--border-color)] focus:border-[var(--accent)] outline-none w-full max-w-[200px] mt-1"
+              />
+              <button 
+                v-if="statusQuery" 
+                @click="statusQuery = ''" 
+                class="ml-1 px-1 text-sm opacity-50 hover:opacity-100 transition-opacity"
+              >
+                ✕
+              </button>
+            </div>
+            <div class="flex gap-2">
+              <input
+                v-model="plotIdQuery"
+                type="text"
+                placeholder="Filter plot ID..."
+                class="text-sm bg-transparent border-b border-[var(--border-color)] focus:border-[var(--accent)] outline-none w-full max-w-[200px] mt-1"
+              />
+              <button 
+                v-if="plotIdQuery" 
+                @click="plotIdQuery = ''" 
+                class="ml-1 px-1 text-sm opacity-50 hover:opacity-100 transition-opacity"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         </div>
         <div class="relative">
@@ -165,12 +182,25 @@ interface IPlotWithVisits extends IPlot {
   latestTreeCount: number;
 }
 const plots = ref<IPlotWithVisits[]>([]);
-const searchQuery = ref('');
+const statusQuery = ref('');
+const plotIdQuery = ref('');
 
 const filteredPlots = computed(() => {
-  if (!searchQuery.value.trim()) return plots.value;
-  const query = searchQuery.value.toLowerCase();
-  return plots.value.filter(plot => plot.plotid.toLowerCase().includes(query));
+  let result = plots.value;
+
+  const sQuery = statusQuery.value.trim().toLowerCase();
+  if (sQuery) {
+    result = result.filter(plot => 
+      plot.visits && plot.visits.some(visit => visit.status && visit.status.toLowerCase().includes(sQuery))
+    );
+  }
+
+  const pQuery = plotIdQuery.value.trim().toLowerCase();
+  if (pQuery) {
+    result = result.filter(plot => plot.plotid.toLowerCase().includes(pQuery));
+  }
+
+  return result;
 });
 
 const toggleMenu = () => {
