@@ -121,6 +121,15 @@ export interface ILookups extends EsriTableBase {
   description: string;
 }
 
+// --- Sync Errors Tracking ---
+export interface ISyncError {
+  id?: number;
+  table_name: string;
+  record_guid: string;
+  error_message: string;
+  timestamp: number;
+}
+
 export class TallypadDB extends Dexie {
   // Define Table types using the interfaces
   plots!: Table<IPlot, string>; // string denotes the type of the Primary Key (globalid)
@@ -130,6 +139,7 @@ export class TallypadDB extends Dexie {
   treeMeasurements!: Table<ITreeMeasurement, string>;
   lookups!: Table<ILookups, string>;
   edits!: Table<IEdit, string>;
+  syncErrors!: Table<ISyncError, number>;
 
   constructor() {
     super('tallypad');
@@ -144,6 +154,10 @@ export class TallypadDB extends Dexie {
       treeMeasurements: `${localGuidFieldName}, tree_guid, visit_guid`,
       lookups: `${localGuidFieldName}, feature, code`,
       edits: `${localGuidFieldName}, record_guid, edit_date`
+    });
+
+    this.version(2).stores({
+      syncErrors: '++id, table_name, record_guid, timestamp'
     });
   }
 }

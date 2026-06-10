@@ -43,8 +43,11 @@
             </div>
           </div>
         </div>
-        <div class="relative">
-          <button @click="store.toggleDarkMode()" class="mr-4 text-xl">
+        <div class="relative gap-4 flex items-center">
+          <button v-show="store.hasSyncErrors.value" class="text-xl" @click="store.goToSyncErrors()">
+            <span class="menu-icon">⚠️</span>
+          </button>
+          <button @click="store.toggleDarkMode()" class="text-xl">
             <span class="menu-icon">{{ store.isDarkMode.value ? '☀️' : '🌙' }}</span>
           </button>
           <button @click.stop="toggleMenu" class="p-2 rounded text-xl font-bold" :style="{ color: 'var(--text-primary)' }">
@@ -64,6 +67,11 @@
             <button class="menu-item" @click="store.goToLookups()">
               <span class="menu-icon">🗂️</span>
               <span>Manage Lookups</span>
+            </button>
+
+            <button class="menu-item" @click="store.goToSyncErrors()">
+              <span class="menu-icon">⚠️</span>
+              <span>Sync Errors</span>
             </button>
 
             <button class="menu-item">
@@ -162,6 +170,11 @@
       <!-- Lookups View -->
       <Lookups />
     </template>
+
+    <template v-else-if="store.currentView.value === 'sync_errors'">
+      <!-- Sync Errors View -->
+      <SyncErrors />
+    </template>
   </div>
 </template>
 
@@ -173,10 +186,12 @@ import Trees from './views/Trees.vue';
 import Setup from './views/Setup.vue';
 import PlotDetails from './views/PlotDetails.vue';
 import Lookups from './views/Lookups.vue';
+import SyncErrors from './views/SyncErrors.vue';
 
 const store = useAppStore();
 const dbVersion = ref(0);
 const isMenuOpen = ref(false);
+
 
 interface IPlotWithVisits extends IPlot {
   visits: IPlotVisit[];
@@ -283,58 +298,60 @@ const loadPlots = async () => {
   );
 };
 
+
+
 onMounted(() => {
   dbVersion.value = db.verno;
   loadPlots();
   
-    // Handle Esri OAuth redirect (Code Grant)
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get('code');
-    if (code) {
-      const verifier = localStorage.getItem('esri_code_verifier');
-      const REDIRECT_URI = window.location.origin + window.location.pathname.replace(/\/$/, '') + '/';
-      console.log('Redirect URI: ', REDIRECT_URI)
-      console.log('Code: ', code)
-      console.log('Verifier: ', verifier)
-      
-      fetch('https://www.arcgis.com/sharing/rest/oauth2/token', {
-        method: 'POST',
-        body: new URLSearchParams({
-          f: 'json',
-          client_id: import.meta.env.VITE_ESRI_CLIENT_ID,
-          grant_type: 'authorization_code',
-          code: code,
-          redirect_uri: REDIRECT_URI,
-          code_verifier: verifier || ''
-        })
+  // Handle Esri OAuth redirect (Code Grant)
+  const urlParams = new URLSearchParams(window.location.search);
+  const code = urlParams.get('code');
+  if (code) {
+    const verifier = localStorage.getItem('esri_code_verifier');
+    const REDIRECT_URI = window.location.origin + window.location.pathname.replace(/\/$/, '') + '/';
+    console.log('Redirect URI: ', REDIRECT_URI)
+    console.log('Code: ', code)
+    console.log('Verifier: ', verifier)
+    
+    fetch('https://www.arcgis.com/sharing/rest/oauth2/token', {
+      method: 'POST',
+      body: new URLSearchParams({
+        f: 'json',
+        client_id: import.meta.env.VITE_ESRI_CLIENT_ID,
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: REDIRECT_URI,
+        code_verifier: verifier || ''
       })
-      .then(res => res.json())
-      .then(data => {
-        if (data.access_token) {
-          const expiration = Date.now() + (data.expires_in * 1000);
-          console.log('Token Expiration: ', expiration)
-          store.setEsriAuth(data.access_token, data.username, expiration, data.refresh_token);
-          store.goToSetup();
-          window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
-          localStorage.removeItem('esri_code_verifier');
-        } else {
-          console.error('Esri Token Exchange Failed:', data);
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.access_token) {
+        const expiration = Date.now() + (data.expires_in * 1000);
+        console.log('Token Expiration: ', expiration)
+        store.setEsriAuth(data.access_token, data.username, expiration, data.refresh_token);
+        store.goToSetup();
+        window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
+        localStorage.removeItem('esri_code_verifier');
+      } else {
+        console.error('Esri Token Exchange Failed:', data);
+      }
+    });
+  }
+
+  // Periodic check for token refresh (every minute)
+  const refreshInterval = setInterval(() => {
+    if (store.esriToken.value && store.isTokenExpired.value) {
+      store.refreshEsriToken().then(success => {
+        if (!success) {
+          console.warn("Background refresh failed. Manual login may be required.");
         }
       });
     }
-
-    // Periodic check for token refresh (every minute)
-    const refreshInterval = setInterval(() => {
-      if (store.esriToken.value && store.isTokenExpired.value) {
-        store.refreshEsriToken().then(success => {
-          if (!success) {
-            console.warn("Background refresh failed. Manual login may be required.");
-          }
-        });
-      }
-    }, 60000);
-    
-    onUnmounted(() => clearInterval(refreshInterval));
+  }, 60000);
+  
+  onUnmounted(() => clearInterval(refreshInterval));
 
   // Check if current session token is expired
   if (store.isTokenExpired.value) {

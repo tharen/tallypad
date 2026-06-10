@@ -1,8 +1,9 @@
 import { ref, computed } from 'vue';
-import { ITree, IPlot, IPlotVisit, ITreeMeasurement } from '../db';
+import { ITree, IPlot, IPlotVisit, ITreeMeasurement, ISyncError, db } from '../db';
 
 export interface AppState {
   isMobile: boolean;
+  currentView: 'plots' | 'trees' | 'setup' | 'plot_detail' | 'lookups' | 'sync_errors';
   currentView: 'plots' | 'trees' | 'setup' | 'plot_detail' | 'lookups';
   selectedPlot: IPlot | null;
   selectedVisit: IPlotVisit | null;
@@ -17,6 +18,7 @@ export interface AppState {
   esriRefreshToken: string | null;
   tokenExpiration: number | null;
   plotServiceUrl: string;
+  hasSyncErrors: boolean;
 }
 
 const STORAGE_KEY_USER = 'tallypad_user';
@@ -44,6 +46,7 @@ const state = ref<AppState>({
   esriRefreshToken: localStorage.getItem(STORAGE_KEY_REFRESH_TOKEN),
   tokenExpiration: Number(localStorage.getItem(STORAGE_KEY_EXPIRY)) || null,
   plotServiceUrl: localStorage.getItem(STORAGE_KEY_PLOT_SERVICE_URL) || import.meta.env.VITE_PLOT_SERVICE_URL,
+  hasSyncErrors: false,
 });
 
 export const useAppStore = () => {
@@ -65,6 +68,10 @@ export const useAppStore = () => {
 
   const goToLookups = () => {
     state.value.currentView = 'lookups';
+  };
+
+  const goToSyncErrors = () => {
+    state.value.currentView = 'sync_errors';
   };
 
   const goToPlotDetail = (plot: IPlot) => {
@@ -180,12 +187,25 @@ export const useAppStore = () => {
     return false;
   };
 
+  const hasSyncErrors = computed(() => state.value.hasSyncErrors);
+  const checkSyncErrors = async () => {
+    if (db.syncErrors) {
+      state.value.hasSyncErrors = (await db.syncErrors.count()) > 0;
+    } else {
+      state.value.hasSyncErrors = false;
+    }
+  };
+
+  // Run initial check
+  checkSyncErrors();
+
   return {
     goToTrees,
     goToPlots,
     goToSetup,
     goToPlotDetail,
     goToLookups,
+    goToSyncErrors,
     toggleDarkMode,
     checkDeviceType,
     isMobile,
@@ -206,6 +226,9 @@ export const useAppStore = () => {
     toggleAllowAddVisits,
     setEsriAuth,
     logoutEsri,
+    refreshEsriToken,
+    hasSyncErrors,
+    checkSyncErrors,
     refreshEsriToken
   };
 };

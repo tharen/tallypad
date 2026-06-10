@@ -26,7 +26,7 @@
 // FIXME: Records with text exceeding the field width on the server will fail to sync.
 //        Capture these in a local table so the user can fix them
 
-import { db, IPlot, IGpsPoint, IPlotVisit, ITree, ITreeMeasurement, ILookups, IEdit } from './db';
+import { db, IPlot, IGpsPoint, IPlotVisit, ITree, ITreeMeasurement, ILookups, IEdit, ISyncError } from './db';
 import { useAppStore } from './stores/appStore'
 
 /** Helper to convert empty string or other falsy values to null, and coerce numbers to valid numbers or null */
@@ -207,6 +207,7 @@ function buildPlotGeometry(plot: IPlot): Record<string, unknown> | null {
 // ---- Plots (layer 1, Feature Layer) ----------------------------------------
 
 async function syncPlots(token: string): Promise<void> {
+  await db.syncErrors.where('table_name').equals('plots').delete();
   const remote = await queryAll(LAYER.plot, token);
   // console.log('plots', remote.length)
 
@@ -274,12 +275,13 @@ async function syncPlots(token: string): Promise<void> {
   }
 
   const result = await applyEdits(LAYER.plot, adds, updates, token);
-  logApplyResults('plots', result);
+  await logApplyResults('plots', result, adds, updates);
 }
 
 // ---- GpsPoints (layer 5, Feature Layer) ------------------------------------
 
 async function syncGpsPoints(token: string): Promise<void> {
+  await db.syncErrors.where('table_name').equals('gps_points').delete();
   const remote = await queryAll(LAYER.gps_point, token);
   console.log('GpsPoints', remote.length)
 
@@ -354,12 +356,13 @@ async function syncGpsPoints(token: string): Promise<void> {
   }
 
   const result = await applyEdits(LAYER.gps_point, adds, updates, token);
-  logApplyResults('GpsPoints', result);
+  await logApplyResults('gps_points', result, adds, updates);
 }
 
 // ---- Visits (table 3) ------------------------------------------------------
 
 async function syncVisits(token: string): Promise<void> {
+  await db.syncErrors.where('table_name').equals('visits').delete();
   const remote = await queryAll(LAYER.visit, token);
 
   const remoteByGuid = new Map<string, EsriFeature>();
@@ -420,12 +423,13 @@ async function syncVisits(token: string): Promise<void> {
   }
 
   const result = await applyEdits(LAYER.visit, adds, updates, token);
-  logApplyResults('visits', result);
+  await logApplyResults('visits', result, adds, updates);
 }
 
 // ---- Trees (table 2) -------------------------------------------------------
 
 async function syncTrees(token: string): Promise<void> {
+  await db.syncErrors.where('table_name').equals('trees').delete();
   const remote = await queryAll(LAYER.tree, token);
 
   // Service tree table now has a "guid" field -- key on it like every other table
@@ -491,12 +495,13 @@ async function syncTrees(token: string): Promise<void> {
   }
 
   const result = await applyEdits(LAYER.tree, adds, updates, token);
-  logApplyResults('trees', result);
+  await logApplyResults('trees', result, adds, updates);
 }
 
 // ---- Measurements (table 4) ------------------------------------------------
 
 async function syncMeasurements(token: string): Promise<void> {
+  await db.syncErrors.where('table_name').equals('measurements').delete();
   const remote = await queryAll(LAYER.measurement, token);
 
   const remoteByGuid = new Map<string, EsriFeature>();
@@ -602,12 +607,13 @@ async function syncMeasurements(token: string): Promise<void> {
   // console.log(adds);
 
   const result = await applyEdits(LAYER.measurement, adds, updates, token);
-  logApplyResults('measurements', result);
+  await logApplyResults('measurements', result, adds, updates);
 }
 
 // ---- Lookups (table 6) -----------------------------------------------------
 
 async function syncLookups(token: string): Promise<void> {
+  await db.syncErrors.where('table_name').equals('lookups').delete();
   const remote = await queryAll(LAYER.lookup, token);
 
   const remoteByGuid = new Map<string, EsriFeature>();
@@ -661,12 +667,13 @@ async function syncLookups(token: string): Promise<void> {
   }
 
   const result = await applyEdits(LAYER.lookup, adds, updates, token);
-  logApplyResults('lookups', result);
+  await logApplyResults('lookups', result, adds, updates);
 }
 
 // ---- Edits (table 7) -------------------------------------------------------
 
 async function syncEdits(token: string): Promise<void> {
+  await db.syncErrors.where('table_name').equals('edits').delete();
   const remote = await queryAll(LAYER.edit, token);
 
   const remoteByGuid = new Map<string, EsriFeature>();
@@ -725,14 +732,19 @@ async function syncEdits(token: string): Promise<void> {
   }
 
   const result = await applyEdits(LAYER.edit, adds, updates, token);
-  logApplyResults('edits', result);
+  await logApplyResults('edits', result, adds, updates);
 }
 
 // ---------------------------------------------------------------------------
 // Logging helper
 // ---------------------------------------------------------------------------
 
-function logApplyResults(table: string, result: ApplyEditsResponse): void {
+async function logApplyResults(
+  table: string,
+  result: ApplyEditsResponse,
+  adds: EsriFeature[],
+  updates: EsriFeature[]
+): Promise<void> {
   const failedAdds    = (result.addResults    ?? []).filter(r => !r.success);
   const failedUpdates = (result.updateResults ?? []).filter(r => !r.success);
 
@@ -740,6 +752,39 @@ function logApplyResults(table: string, result: ApplyEditsResponse): void {
     console.warn(`[sync] ${table} -- ${failedAdds.length} add failure(s), ${failedUpdates.length} update failure(s)`);
     for (const r of [...failedAdds, ...failedUpdates]) {
       console.warn(`  globalId=${r.globalId} error=${r.error?.code} ${r.error?.description}`);
+    }
+
+    const errorsToInsert: ISyncError[] = [];
+    if (result.addResults) {
+      for (let i = 0; i < result.addResults.length; i++) {
+        const r = result.addResults[i];
+        if (!r.success) {
+          const guid = adds[i]?.attributes?.['guid'] as string;
+          errorsToInsert.push({
+            table_name: table,
+            record_guid: guid || r.globalId || 'unknown',
+            error_message: r.error ? `Code ${r.error.code}: ${r.error.description}` : 'Unknown error',
+            timestamp: Date.now()
+          });
+        }
+      }
+    }
+    if (result.updateResults) {
+      for (let i = 0; i < result.updateResults.length; i++) {
+        const r = result.updateResults[i];
+        if (!r.success) {
+          const guid = updates[i]?.attributes?.['guid'] as string;
+          errorsToInsert.push({
+            table_name: table,
+            record_guid: guid || r.globalId || 'unknown',
+            error_message: r.error ? `Code ${r.error.code}: ${r.error.description}` : 'Unknown error',
+            timestamp: Date.now()
+          });
+        }
+      }
+    }
+    if (errorsToInsert.length > 0) {
+      await db.syncErrors.bulkAdd(errorsToInsert);
     }
   } else {
     const added   = (result.addResults    ?? []).length;
@@ -765,7 +810,21 @@ export interface SyncResult {
  * Order matters: parents before children to avoid FK violations on the server.
  *   plots -> GpsPoints -> visits -> trees -> measurements -> lookups -> edits
  */
-export async function syncAll(state: ReturnType<typeof useAppStore> ): Promise<SyncResult> {
+export type SyncStep = 'plots' | 'gps_points' | 'visits' | 'trees' | 'measurements' | 'lookups' | 'edits';
+export type SyncStatus = 'pending' | 'syncing' | 'completed' | 'failed';
+
+export interface SyncProgress {
+  step: SyncStep;
+  status: SyncStatus;
+  message?: string;
+}
+
+export type SyncProgressCallback = (progress: SyncProgress) => void;
+
+export async function syncAll(
+  state: ReturnType<typeof useAppStore>,
+  onProgress?: SyncProgressCallback
+): Promise<SyncResult> {
   const esriToken = state.esriToken.value;
   if (!esriToken) {
     return { success: false, errors: { auth: 'No ESRI token available' } };
@@ -773,7 +832,14 @@ export async function syncAll(state: ReturnType<typeof useAppStore> ): Promise<S
 
   const errors: Record<string, string> = {};
 
-  const steps: [string, () => Promise<void>][] = [
+  if (onProgress) {
+    const allSteps: SyncStep[] = ['plots', 'gps_points', 'visits', 'trees', 'measurements', 'lookups', 'edits'];
+    for (const step of allSteps) {
+      onProgress({ step, status: 'pending' });
+    }
+  }
+
+  const steps: [SyncStep, () => Promise<void>][] = [
     ['plots',        () => syncPlots(esriToken)],
     ['gps_points',   () => syncGpsPoints(esriToken)],
     ['visits',       () => syncVisits(esriToken)],
@@ -785,14 +851,32 @@ export async function syncAll(state: ReturnType<typeof useAppStore> ): Promise<S
 
   for (const [name, fn] of steps) {
     try {
+      if (onProgress) {
+        onProgress({ step: name, status: 'syncing' });
+      }
       await fn();
+      if (onProgress) {
+        onProgress({ step: name, status: 'completed' });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[sync] ${name} failed:`, message);
       errors[name] = message;
+
+      await db.syncErrors.add({
+        table_name: name,
+        record_guid: 'ALL',
+        error_message: message,
+        timestamp: Date.now()
+      });
+
+      if (onProgress) {
+        onProgress({ step: name, status: 'failed', message });
+      }
     }
   }
 
+  await state.checkSyncErrors();
   return { success: Object.keys(errors).length === 0, errors };
 }
 
@@ -819,4 +903,5 @@ export async function syncTable(
     edit:        () => syncEdits(esriToken),
   };
   await dispatch[table]();
+  await state.checkSyncErrors();
 }
