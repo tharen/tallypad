@@ -331,15 +331,15 @@ onMounted(() => {
   dbVersion.value = db.verno;
   loadPlots();
   
+  // Second phase of and ESRI login, initiated in Setup.vue->login
+  // If the app is loading following a login redirect then this processes the token
   // Handle Esri OAuth redirect (Code Grant)
   const urlParams = new URLSearchParams(window.location.search);
   const code = urlParams.get('code');
   if (code) {
+    // verifier is a random sequence generated and saved in Setup.vue->login
     const verifier = localStorage.getItem('esri_code_verifier');
     const REDIRECT_URI = window.location.origin + window.location.pathname.replace(/\/$/, '') + '/';
-    console.log('Redirect URI: ', REDIRECT_URI)
-    console.log('Code: ', code)
-    console.log('Verifier: ', verifier)
     
     fetch('https://www.arcgis.com/sharing/rest/oauth2/token', {
       method: 'POST',
@@ -367,36 +367,34 @@ onMounted(() => {
     });
   }
 
+  // Check if we need to refresh token on startup
+  if (store.esriRefreshToken.value && (!store.esriToken.value || store.isTokenExpired.value)) {
+    store.refreshEsriToken().then(result => {
+      if (result === 'PERMANENT_FAILURE') {
+        console.warn("Refresh token is expired or invalid. Logging out.");
+        store.logoutEsri();
+      } else if (!result) {
+        console.warn("Network error during token refresh. Retaining offline session.");
+      }
+    });
+  } else if (store.esriToken.value && store.isTokenExpired.value && !store.esriRefreshToken.value) {
+    // Has access token but it is expired and no refresh token is available
+    store.logoutEsri();
+  }
+
   // Periodic check for token refresh (every minute)
   const refreshInterval = setInterval(() => {
     if (store.esriToken.value && store.isTokenExpired.value) {
-      store.refreshEsriToken().then(success => {
-        if (!success) {
-          console.warn("Background refresh failed. Manual login may be required.");
+      store.refreshEsriToken().then(result => {
+        if (result === 'PERMANENT_FAILURE') {
+          console.warn("Refresh token expired. Logging out.");
+          store.logoutEsri();
         }
       });
     }
   }, 60000);
   
   onUnmounted(() => clearInterval(refreshInterval));
-
-  // Check if current session token is expired
-  if (store.isTokenExpired.value) {
-    store.logoutEsri();
-  }
-
-  // // Add some sample data if the database is empty
-  // db.plots.count().then((count) => {
-  //   if (count === 0) {
-  //     const samplePlots: IPlot[] = [
-  //       { guid: crypto.randomUUID(), plotid: '28XJPQ21', Shape: 'POINT (0 0)' },
-  //       { guid: crypto.randomUUID(), plotid: '32SFYJ40', Shape: 'POINT (0 0)' },
-  //     ];
-  //     db.plots.bulkAdd(samplePlots).then(() => {
-  //       loadPlots();
-  //     });
-  //   }
-  // });
 
   document.addEventListener('click', closeMenu);
 

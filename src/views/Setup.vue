@@ -308,6 +308,11 @@
   const REDIRECT_URI = window.location.origin + window.location.pathname.replace(/\/$/, '') + '/';
 
   const login = () => {
+    // Initiates user login with ESRI
+    // User is redirecte to the ESRI login page
+    // After the login completes the user is redirected back to the app
+    // The second step in the process is hand in the onMounted routine in App.vue 
+
     // Generate a cryptographically strong verifier for PKCE.
     // RFC 7636 requires a minimum length of 43 characters. 
     // Two UUIDs combined provide ~72 characters, well within the 43-128 range.
