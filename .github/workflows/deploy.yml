@@ -29,6 +29,7 @@ jobs:
         working-directory: .
         env:
           VITE_ESRI_CLIENT_ID: ${{ vars.VITE_ESRI_CLIENT_ID }}
+          VITE_PLOT_SERVICE_URL: ${{ vars.VITE_PLOT_SERVICE_URL }}
         run: |
           npm ci --legacy-peer-deps
           npm run build
