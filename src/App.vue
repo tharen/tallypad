@@ -382,20 +382,6 @@ onMounted(() => {
     store.logoutEsri();
   }
 
-  // Periodic check for token refresh (every minute)
-  const refreshInterval = setInterval(() => {
-    if (store.esriToken.value && store.isTokenExpired.value) {
-      store.refreshEsriToken().then(result => {
-        if (result === 'PERMANENT_FAILURE') {
-          console.warn("Refresh token expired. Logging out.");
-          store.logoutEsri();
-        }
-      });
-    }
-  }, 60000);
-  
-  onUnmounted(() => clearInterval(refreshInterval));
-
   document.addEventListener('click', closeMenu);
 
   store.checkDeviceType();

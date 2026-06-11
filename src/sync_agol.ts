@@ -825,6 +825,16 @@ export async function syncAll(
   state: ReturnType<typeof useAppStore>,
   onProgress?: SyncProgressCallback
 ): Promise<SyncResult> {
+  if (state.isTokenExpired.value && state.esriRefreshToken.value) {
+    const refreshResult = await state.refreshEsriToken();
+    if (refreshResult === 'PERMANENT_FAILURE') {
+      state.logoutEsri();
+      return { success: false, errors: { auth: 'ESRI session expired. Please log in again.' } };
+    } else if (!refreshResult) {
+      return { success: false, errors: { auth: 'Network error: Unable to refresh ESRI token.' } };
+    }
+  }
+
   const esriToken = state.esriToken.value;
   if (!esriToken) {
     return { success: false, errors: { auth: 'No ESRI token available' } };
@@ -888,6 +898,16 @@ export async function syncTable(
   table: keyof typeof LAYER,
   state: ReturnType<typeof useAppStore>,
 ): Promise<void> {
+  if (state.isTokenExpired.value && state.esriRefreshToken.value) {
+    const refreshResult = await state.refreshEsriToken();
+    if (refreshResult === 'PERMANENT_FAILURE') {
+      state.logoutEsri();
+      throw new Error('ESRI session expired. Please log in again.');
+    } else if (!refreshResult) {
+      throw new Error('Network error: Unable to refresh ESRI token.');
+    }
+  }
+
   const esriToken = state.esriToken.value;
   if (!esriToken) {
     throw new Error('No ESRI token available');

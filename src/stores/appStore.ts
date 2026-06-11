@@ -126,9 +126,14 @@ export const useAppStore = () => {
 
   const checkDeviceType = () => {
     if (typeof window === "undefined") {
+      console.log('checkDeviceType: No window object')
       state.value.isMobile = false;
+      
     } else {
       const ua = window.navigator.userAgent;
+
+      console.log('checkDeviceType: User Agent:', ua);
+      console.log('checkDeviceType: maxTouchPoints:', window.navigator.maxTouchPoints);
   
       // Tablets (like Samsung Tab Active) often omit "Mobi" from the User Agent.
       // We check for mobile platforms and touch support to classify them as "mobile" (field) devices.
