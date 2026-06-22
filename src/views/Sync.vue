@@ -187,7 +187,7 @@
 <script setup lang="ts">
   import { ref, computed, onMounted } from 'vue';
   import { useAppStore } from '../stores/appStore';
-  import { syncAll, SyncStep, SyncStatus } from '../sync_agol';
+  import { syncAll, unregisterCurrentReplica, SyncStep, SyncStatus } from '../sync_agol';
   import { db, renewDatabase, exportDatabase, importDatabase } from '../db';
 
   const store = useAppStore();
@@ -239,14 +239,32 @@
   };
 
   const wipeDB = async () => {
-    if (confirm('This will erase any unsaved, unsynced data. Are you sure you want to wipe the database?')) {
-      if (confirm('Click OK to wipe the database.')) {
-        renewDatabase();
-        alert('Database wiped successfully!');
-      } else {
+    if (!confirm('This will erase any unsaved, unsynced data. Are you sure you want to wipe the database?')) {
+      return;
+    }
+    if (!confirm('Click OK to wipe the database.')) {
+      return;
+    }
+
+    const replicaId = localStorage.getItem('tallypad_replica_id');
+    const isTokenMissingOrExpired = !store.esriToken.value || store.isTokenExpired.value;
+
+    if (replicaId && isTokenMissingOrExpired) {
+      const proceed = confirm(
+        'Warning: Your ArcGIS Online login is missing or expired. ' +
+        'Proceeding with the database wipe will clear your local data, but the active server replica ' +
+        'might be left orphaned on the server.\n\n' +
+        'Do you want to proceed with the local wipe anyway?'
+      );
+      if (!proceed) {
         alert('Database wipe canceled.');
+        return;
       }
     }
+
+    await unregisterCurrentReplica(store.esriToken.value || '');
+    renewDatabase();
+    alert('Database wiped successfully!');
   };
 
   const isSyncing = ref(false);

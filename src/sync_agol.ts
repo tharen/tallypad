@@ -1,34 +1,14 @@
 /**
  * sync_agol.ts
  *
- * Bidirectional sync between TallypadDB (Dexie/IndexedDB) and an ESRI Feature
- * Service REST endpoint.  Conflict resolution: local wins (last-write-wins on
- * the local side).
+ * Bidirectional sync between TallypadDB (Dexie/IndexedDB) and an ESRI Featu * Service REST endpoint using ArcGIS Online Replica REST endpoints (createReplica,
+ * synchronizeReplica, and unregisterReplica).
  *
- * Strategy per layer / table:
- *   1. Pull all records from the service (query where 1=1).
- *   2. Insert them into local Dexie tables ONLY when the record does NOT
- *      already exist locally -- we never overwrite a local record with a remote
- *      one (local wins).
- *   3. Push every local record to the service using applyEdits with
- *      useGlobalIds=true, sending adds for records the service does not know
- *      and updates for records it does.
- *
- * Schema notes:
- *   - Service spatial reference is WKID 4326 (WGS-84) for both feature layers.
- *   - All tables carry a "guid" field used as the primary key locally and
- *     matched server-side via applyEdits with useGlobalIds=true.
- *   - tenyr: service field is SmallInteger, local type is number. Send null
- *     when undefined; no coercion required.
+ * Conflict resolution: Last-Write-Wins based on last_edited_date.
  */
 
-// TODO: Handle records that have been removed from the server, e.g. not in the server rows and local copy has edit time prior to the last sync
-// TODO: Query adds/updates/deletes instead of full database
-// FIXME: Records with text exceeding the field width on the server will fail to sync.
-//        Capture these in a local table so the user can fix them
-
-import { db, IPlot, IGpsPoint, IPlotVisit, ITree, ITreeMeasurement, ILookups, IEdit, ISyncError, IDeletedRecord } from './db';
-import { useAppStore } from './stores/appStore'
+import { db, IPlot, IGpsPoint, IPlotVisit, ITree, ITreeMeasurement, ILookups, IEdit, ISyncError } from './db';
+import { useAppStore } from './stores/appStore';
 
 /** Helper to convert empty string or other falsy values to null, and coerce numbers to valid numbers or null */
 function toEsriNumber(val: unknown): number | null {
@@ -39,39 +19,34 @@ function toEsriNumber(val: unknown): number | null {
   return isNaN(num) ? null : num;
 }
 
-function hasChanges(localAttrs: Record<string, unknown>, remoteAttrs: Record<string, unknown>): boolean {
-  const remoteLower = new Map<string, unknown>();
-  for (const [k, v] of Object.entries(remoteAttrs)) {
-    remoteLower.set(k.toLowerCase(), v);
-  }
+// function hasChanges(localAttrs: Record<string, unknown>, remoteAttrs: Record<string, unknown>): boolean {
+//   const remoteLower = new Map<string, unknown>();
+//   for (const [k, v] of Object.entries(remoteAttrs)) {
+//     remoteLower.set(k.toLowerCase(), v);
+//   }
 
-  for (const [key, localVal] of Object.entries(localAttrs)) {
-    const remoteVal = remoteLower.get(key.toLowerCase());
+//   for (const [key, localVal] of Object.entries(localAttrs)) {
+//     const remoteVal = remoteLower.get(key.toLowerCase());
     
-    const normalizedLocal = (localVal === null || localVal === undefined || localVal === '') ? null : localVal;
-    const normalizedRemote = (remoteVal === null || remoteVal === undefined || remoteVal === '') ? null : remoteVal;
+//     const normalizedLocal = (localVal === null || localVal === undefined || localVal === '') ? null : localVal;
+//     const normalizedRemote = (remoteVal === null || remoteVal === undefined || remoteVal === '') ? null : remoteVal;
     
-    if (normalizedLocal !== normalizedRemote) {
-      if (typeof normalizedLocal === 'number' && typeof normalizedRemote === 'number') {
-        if (Math.abs(normalizedLocal - normalizedRemote) > 0.00001) {
-          return true;
-        }
-      } else if (String(normalizedLocal) !== String(normalizedRemote)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// App state -- replace with your actual reactive state source (Pinia, etc.)
-// ---------------------------------------------------------------------------
-// export interface AppState {
-//   userName: string;
-//   esriToken: string;
+//     if (normalizedLocal !== normalizedRemote) {
+//       if (typeof normalizedLocal === 'number' && typeof normalizedRemote === 'number') {
+//         if (Math.abs(normalizedLocal - normalizedRemote) > 0.00001) {
+//           return true;
+//         }
+//       } else if (String(normalizedLocal) !== String(normalizedRemote)) {
+//         return true;
+//       }
+//     }
+//   }
+//   return false;
 // }
 
+// ---------------------------------------------------------------------------
+// App state
+// ---------------------------------------------------------------------------
 const store = useAppStore();
 
 // ---------------------------------------------------------------------------
@@ -79,7 +54,7 @@ const store = useAppStore();
 // ---------------------------------------------------------------------------
 const SERVICE_URL = import.meta.env.VITE_PLOT_SERVICE_URL;
 
-// Layer / table IDs from grow_mon_svc.json
+// Layer / table IDs from service_definition.json
 const LAYER = {
   plot:        1,
   tree:        2,
@@ -122,58 +97,8 @@ async function esriPost(url: string, params: Record<string, string>, token: stri
   return json;
 }
 
-/** Query all features/rows from a layer, handling maxRecordCount pagination */
-async function queryAll(layerId: number, token: string): Promise<EsriFeature[]> {
-  const baseUrl = `${SERVICE_URL}/${layerId}/query`;
-  const collected: EsriFeature[] = [];
-  let offset = 0;
-  const pageSize = 2000;
-
-  while (true) {
-    const result = await esriPost(baseUrl, {
-      where:             '1=1',
-      outFields:         '*',
-      returnGeometry:    'true',
-      resultOffset:      String(offset),
-      resultRecordCount: String(pageSize),
-    }, token) as { features?: EsriFeature[]; exceededTransferLimit?: boolean };
-
-    const features = result.features ?? [];
-    collected.push(...features);
-
-    if (!result.exceededTransferLimit || features.length === 0) break;
-    offset += features.length;
-  }
-
-  console.log('Layer', layerId, 'collected', collected.length, 'features');
-  return collected;
-}
-
-/** Send adds + updates to a layer using useGlobalIds */
-async function applyEdits(
-  layerId: number,
-  adds: EsriFeature[],
-  updates: EsriFeature[],
-  token: string,
-  deletes: (number | string)[] = [],
-): Promise<ApplyEditsResponse> {
-  if (adds.length === 0 && updates.length === 0 && deletes.length === 0) return {};
-  const url = `${SERVICE_URL}/${layerId}/applyEdits`;
-  
-  const params: Record<string, string> = {
-    useGlobalIds:      'false',
-    rollbackOnFailure: 'false',
-  };
-  if (adds.length > 0) params.adds = JSON.stringify(adds);
-  if (updates.length > 0) params.updates = JSON.stringify(updates);
-  if (deletes.length > 0) params.deletes = JSON.stringify(deletes);
-
-  const result = await esriPost(url, params, token) as ApplyEditsResponse;
-  return result;
-}
-
 // ---------------------------------------------------------------------------
-// Field-mapping helpers
+// Field-mapping & GUID helpers
 // ---------------------------------------------------------------------------
 
 /** Strip fields that ESRI manages (read-only) so we do not send them on push */
@@ -223,919 +148,378 @@ function normalizeGuid(guid: string | undefined | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Per-table sync functions
+// Replica Sync Helpers
 // ---------------------------------------------------------------------------
 
-// ---- Plots (layer 1, Feature Layer) ----------------------------------------
+const LAYER_TO_TABLE: Record<number, any> = {
+  [LAYER.plot]:        db.plots,
+  [LAYER.tree]:        db.plotTrees,
+  [LAYER.visit]:       db.plotVisits,
+  [LAYER.measurement]: db.treeMeasurements,
+  [LAYER.gps_point]:   db.plotGpsPoints,
+  [LAYER.lookup]:      db.lookups,
+  [LAYER.edit]:        db.edits,
+};
 
-async function syncPlots(token: string): Promise<void> {
-  await db.syncErrors.where('table_name').equals('plots').delete();
-  const remote = await queryAll(LAYER.plot, token);
+function mapRemoteToLocal(layerId: number, f: EsriFeature): any {
+  const a = f.attributes;
+  const rawGuid = getAttrCaseInsensitive(a, 'guid') as string | undefined;
+  const g = normalizeGuid(rawGuid);
 
-  const remoteByGuid = new Map<string, EsriFeature>();
-  for (const f of remote) {
-    const g = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    if (g) remoteByGuid.set(normalizeGuid(g), f);
+  const base = {
+    guid: rawGuid || g,
+    OBJECTID: getAttrCaseInsensitive(a, 'OBJECTID') as number | undefined,
+    GlobalID: getAttrCaseInsensitive(a, 'GlobalID') as string | undefined,
+    created_user: a['created_user'] as string | undefined,
+    created_date: a['created_date'] as number | undefined,
+    last_edited_user: a['last_edited_user'] as string | undefined,
+    last_edited_date: a['last_edited_date'] as number | undefined,
+  };
+
+  switch (layerId) {
+    case LAYER.plot:
+      return {
+        ...base,
+        plotid: a['plotid'] as string,
+        Shape: f.geometry ?? null,
+        established: a['established_date'] as number | undefined,
+        planned_latitude: a['planned_latitude'] as number | undefined,
+        planned_longitude: a['planned_longitude'] as number | undefined,
+        remarks: a['remarks'] as string | undefined,
+      };
+    case LAYER.gps_point:
+      return {
+        ...base,
+        plot_guid: a['plot_guid'] as string,
+        latitude: a['latitude'] as number,
+        longitude: a['longitude'] as number,
+        time: a['time'] as number,
+        model: a['model'] as string,
+        fix: a['fix'] as number,
+        sat: a['sat'] as number,
+        hdop: a['hdop'] as number,
+        vdop: a['vdop'] as number,
+        pdop: a['pdop'] as number,
+        ageofdgpsd: a['ageofdgpsd'] as number,
+        remarks: a['remarks'] as string,
+      };
+    case LAYER.visit:
+      return {
+        ...base,
+        plot_guid: a['plot_guid'] as string,
+        measurement_date: a['measurement_date'] as number,
+        visit_number: a['visit_number'] as number,
+        status: a['status'] as string | undefined,
+        crew: a['crew'] as string | undefined,
+        remarks: a['remarks'] as string | undefined,
+      };
+    case LAYER.tree:
+      return {
+        ...base,
+        plot_guid: a['plot_guid'] as string,
+        tree_num: a['tree_num'] as number,
+        sp: a['sp'] as string,
+        az: a['az'] as number | undefined,
+        hd: a['hd'] as number | undefined,
+        ref: a['ref'] as string | undefined,
+        sd: a['sd'] as number | undefined,
+        remarks: a['remarks'] as string | undefined,
+      };
+    case LAYER.measurement:
+      return {
+        ...base,
+        tree_guid: a['tree_guid'] as string,
+        visit_guid: a['visit_guid'] as string,
+        gp: a['gp'] as string,
+        gt: a['gt'] as number,
+        dbh: a['dbh'] as number,
+        s: a['s'] as number,
+        fc: a['fc'] as number | undefined,
+        ht: a['ht'] as number | undefined,
+        age: a['age'] as number | undefined,
+        cr: a['cr'] as number | undefined,
+        cc: a['cc'] as number | undefined,
+        d1: a['d1'] as number | undefined,
+        s1: a['s1'] as number | undefined,
+        d2: a['d2'] as number | undefined,
+        s2: a['s2'] as number | undefined,
+        d3: a['d3'] as number | undefined,
+        s3: a['s3'] as number | undefined,
+        def1: a['def1'] as number | undefined,
+        def2: a['def2'] as number | undefined,
+        def3: a['def3'] as number | undefined,
+        c: a['c'] as number | undefined,
+        bt: a['bt'] as number | undefined,
+        upstht: a['upstht'] as number | undefined,
+        upstd: a['upstd'] as number | undefined,
+        fiveyr: a['fiveyr'] as number | undefined,
+        tenyr: a['tenyr'] as number | undefined,
+        remarks: a['remarks'] as string | undefined,
+      };
+    case LAYER.lookup:
+      return {
+        ...base,
+        feature: a['feature'] as string,
+        code: a['code'] as string,
+        value: a['value'] as string,
+        description: a['description'] as string,
+      };
+    case LAYER.edit:
+      return {
+        ...base,
+        table_name: a['table_name'] as string,
+        record_guid: a['record_guid'] as string,
+        field_name: a['field_name'] as string,
+        old_value: a['old_value'] as string,
+        new_value: a['new_value'] as string,
+        reason: a['reason'] as string,
+        edit_date: a['edit_date'] as number,
+      };
+    default:
+      throw new Error(`Unsupported layer ID: ${layerId}`);
+  }
+}
+
+async function applyRemoteFeatures(layerId: number, remoteFeatures: EsriFeature[]): Promise<void> {
+  const dbTable = LAYER_TO_TABLE[layerId];
+  if (!dbTable) return;
+  console.log('Sync ', dbTable)
+
+  const locals = await dbTable.toArray();
+  const localByGuid = new Map(locals.map((l: any) => [normalizeGuid(l.guid), l]));
+
+  const toAddLocally: any[] = [];
+  const toUpdateLocally: any[] = [];
+
+  for (const f of remoteFeatures) {
+    const rawGuid = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
+    const g = normalizeGuid(rawGuid);
+    if (!g) continue;
+
+    const remoteRecord = mapRemoteToLocal(layerId, f);
+    const localRecord = localByGuid.get(g);
+
+    if (!localRecord) {
+      toAddLocally.push(remoteRecord);
+    } else {
+      const localTime = localRecord.last_edited_date ?? 0;
+      const remoteTime = remoteRecord.last_edited_date ?? 0;
+      // Last-Write-Wins: overwrite local copy if remote record is newer, or if local is missing IDs
+      if (remoteTime > localTime || localRecord.OBJECTID === undefined || localRecord.OBJECTID === null || localRecord.GlobalID === undefined || localRecord.GlobalID === null) {
+        toUpdateLocally.push(remoteRecord);
+      }
+    }
   }
 
-  const locals = await db.plots.toArray();
-  const localByGuid = new Map(locals.map(p => [normalizeGuid(p.guid), p]));
+  if (toAddLocally.length) await dbTable.bulkAdd(toAddLocally);
+  if (toUpdateLocally.length) await dbTable.bulkPut(toUpdateLocally);
+}
 
-  const toAddLocally: IPlot[] = [];
-  const toUpdateLocally: IPlot[] = [];
+async function applyRemoteDeletes(layerId: number, deletes: any[]): Promise<void> {
+  const dbTable = LAYER_TO_TABLE[layerId];
+  if (!dbTable || !deletes || deletes.length === 0) return;
+
+  for (const d of deletes) {
+    let key: string | number | undefined = undefined;
+    if (typeof d === 'string' || typeof d === 'number') {
+      key = d;
+    } else if (d && typeof d === 'object') {
+      key = d.globalId || d.globalID || d.objectId || d.OBJECTID || d.GlobalID;
+    }
+
+    if (key !== undefined) {
+      let localRecord: any = undefined;
+      if (typeof key === 'string') {
+        const normalized = normalizeGuid(key);
+        const records = await dbTable.toArray();
+        localRecord = records.find((r: any) => normalizeGuid(r.GlobalID) === normalized || normalizeGuid(r.guid) === normalized);
+      } else if (typeof key === 'number') {
+        const records = await dbTable.toArray();
+        localRecord = records.find((r: any) => r.OBJECTID === key);
+      }
+
+      if (localRecord && localRecord.guid) {
+        await dbTable.delete(localRecord.guid);
+      }
+    }
+  }
+}
+
+async function getLocalEditsForLayer(
+  layerId: number,
+  lastSyncTime: number
+): Promise<{ adds: EsriFeature[]; updates: EsriFeature[]; deletes: (number | string)[] }> {
+  const dbTable = LAYER_TO_TABLE[layerId];
+  if (!dbTable) return { adds: [], updates: [], deletes: [] };
+
+  const locals = await dbTable.toArray();
   const adds: EsriFeature[] = [];
   const updates: EsriFeature[] = [];
 
-  // Ingest remote records or apply remote updates locally
-  for (const f of remote) {
-    const rawGuid = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    const g = normalizeGuid(rawGuid);
-    if (!g) continue;
+  let deleteTableName = '';
+  if (dbTable === db.plotVisits) deleteTableName = 'visit';
+  else if (dbTable === db.plotTrees) deleteTableName = 'tree';
+  else if (dbTable === db.treeMeasurements) deleteTableName = 'measurement';
 
-    const a = f.attributes;
-    const remotePlot: IPlot = {
-      guid:               rawGuid || g,
-      plotid:             a['plotid'] as string,
-      Shape:              f.geometry ?? null,
-      established:        a['established_date'] as number | undefined,
-      planned_latitude:   a['planned_latitude'] as number | undefined,
-      planned_longitude:  a['planned_longitude'] as number | undefined,
-      remarks:            a['remarks'] as string | undefined,
-      OBJECTID:           getAttrCaseInsensitive(a, 'OBJECTID') as number | undefined,
-      GlobalID:           getAttrCaseInsensitive(a, 'GlobalID') as string | undefined,
-      created_user:       a['created_user'] as string | undefined,
-      created_date:       a['created_date'] as number | undefined,
-      last_edited_user:   a['last_edited_user'] as string | undefined,
-      last_edited_date:   a['last_edited_date'] as number | undefined,
-    };
+  let deletes: (number | string)[] = [];
+  if (deleteTableName) {
+    const deletedRecords = await db.deletedRecords
+      .where('table_name')
+      .equals(deleteTableName)
+      .toArray();
+    
+    // Clear unsynced deletes immediately
+    const unsyncedDeletes = deletedRecords
+      .filter(d => d.objectid === undefined && d.globalid === undefined)
+      .map(d => d.guid);
+    if (unsyncedDeletes.length > 0) {
+      await db.deletedRecords.bulkDelete(unsyncedDeletes);
+    }
 
-    const localPlot = localByGuid.get(g);
-    if (!localPlot) {
-      toAddLocally.push(remotePlot);
-    } else {
-      const localTime = localPlot.last_edited_date ?? 0;
-      const remoteTime = remotePlot.last_edited_date ?? 0;
-      if (remoteTime > localTime || localPlot.OBJECTID === undefined || localPlot.OBJECTID === null || localPlot.GlobalID === undefined || localPlot.GlobalID === null) {
-        toUpdateLocally.push(remotePlot);
+    deletes = deletedRecords
+      .map(d => d.objectid || d.globalid)
+      .filter((id): id is string | number => id !== undefined && id !== null);
+  }
+
+  for (const record of locals) {
+    const isAdd = record.OBJECTID === undefined || record.OBJECTID === null;
+    const isUpdate = !isAdd && record.last_edited_date && record.last_edited_date > lastSyncTime;
+
+    if (isAdd || isUpdate) {
+      const attrs = buildFeatureAttributes(layerId, record);
+      const feature: EsriFeature = { attributes: attrs };
+      if (layerId === LAYER.plot) {
+        const geo = buildPlotGeometry(record);
+        if (geo) feature.geometry = geo;
+      } else if (layerId === LAYER.gps_point) {
+        feature.geometry = { x: record.longitude, y: record.latitude, spatialReference: SR_4326 };
       }
-    }
-  }
 
-  // Push local records or local updates to remote
-  for (const plot of locals) {
-    const g = normalizeGuid(plot.guid);
-    const remoteFeature = remoteByGuid.get(g);
-
-    const attrs = stripReadOnly({
-      guid:              plot.guid,
-      plotid:            plot.plotid,
-      established_date:  toEsriNumber(plot.established),
-      planned_latitude:  toEsriNumber(plot.planned_latitude),
-      planned_longitude: toEsriNumber(plot.planned_longitude),
-      remarks:           plot.remarks ?? null,
-    });
-
-    const geo = buildPlotGeometry(plot);
-    const feature: EsriFeature = geo
-      ? { attributes: attrs, geometry: geo }
-      : { attributes: attrs };
-
-    if (!remoteFeature) {
-      adds.push(feature);
-    } else {
-      const localTime = plot.last_edited_date ?? 0;
-      const remoteTime = (getAttrCaseInsensitive(remoteFeature.attributes, 'last_edited_date') as number | undefined) ?? 0;
-
-      if (localTime >= remoteTime) {
-        if (hasChanges(attrs, remoteFeature.attributes)) {
-          attrs['OBJECTID'] = getAttrCaseInsensitive(remoteFeature.attributes, 'OBJECTID');
-          updates.push(feature);
-        }
-      }
-    }
-  }
-
-  if (toAddLocally.length) await db.plots.bulkAdd(toAddLocally);
-  if (toUpdateLocally.length) await db.plots.bulkPut(toUpdateLocally);
-
-  const result = await applyEdits(LAYER.plot, adds, updates, token);
-  await logApplyResults('plots', result, adds, updates);
-  await updateLocalIds(db.plots, result, adds, updates);
-}
-
-// ---- GpsPoints (layer 5, Feature Layer) ------------------------------------
-
-async function syncGpsPoints(token: string): Promise<void> {
-  await db.syncErrors.where('table_name').equals('gps_points').delete();
-  const remote = await queryAll(LAYER.gps_point, token);
-  console.log('GpsPoints', remote.length)
-
-  const remoteByGuid = new Map<string, EsriFeature>();
-  for (const f of remote) {
-    const g = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    if (g) remoteByGuid.set(normalizeGuid(g), f);
-  }
-
-  const locals = await db.plotGpsPoints.toArray();
-  const localByGuid = new Map(locals.map(l => [normalizeGuid(l.guid), l]));
-
-  const toAddLocally: IGpsPoint[] = [];
-  const toUpdateLocally: IGpsPoint[] = [];
-  const adds:    EsriFeature[] = [];
-  const updates: EsriFeature[] = [];
-
-  for (const f of remote) {
-    const rawGuid = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    const g = normalizeGuid(rawGuid);
-    if (!g) continue;
-
-    const a = f.attributes;
-    const remoteGps: IGpsPoint = {
-      guid:       rawGuid || g,
-      plot_guid:  a['plot_guid'] as string,
-      latitude:   a['latitude'] as number,
-      longitude:  a['longitude'] as number,
-      time:       a['time'] as number,
-      model:      a['model'] as string,
-      fix:        a['fix'] as number,
-      sat:        a['sat'] as number,
-      hdop:       a['hdop'] as number,
-      vdop:       a['vdop'] as number,
-      pdop:       a['pdop'] as number,
-      ageofdgpsd: a['ageofdgpsd'] as number,
-      remarks:    a['remarks'] as string,
-      OBJECTID:   getAttrCaseInsensitive(a, 'OBJECTID') as number | undefined,
-      GlobalID:   getAttrCaseInsensitive(a, 'GlobalID') as string | undefined,
-      created_user:       a['created_user'] as string | undefined,
-      created_date:       a['created_date'] as number | undefined,
-      last_edited_user:   a['last_edited_user'] as string | undefined,
-      last_edited_date:   a['last_edited_date'] as number | undefined,
-    };
-
-    const localGps = localByGuid.get(g);
-    if (!localGps) {
-      toAddLocally.push(remoteGps);
-    } else {
-      const localTime = localGps.last_edited_date ?? 0;
-      const remoteTime = remoteGps.last_edited_date ?? 0;
-      if (remoteTime > localTime || localGps.OBJECTID === undefined || localGps.OBJECTID === null || localGps.GlobalID === undefined || localGps.GlobalID === null) {
-        toUpdateLocally.push(remoteGps);
-      }
-    }
-  }
-
-  for (const loc of locals) {
-    const g = normalizeGuid(loc.guid);
-    const remoteFeature = remoteByGuid.get(g);
-
-    const attrs = stripReadOnly({
-      guid:       loc.guid,
-      plot_guid:  loc.plot_guid,
-      latitude:   toEsriNumber(loc.latitude),
-      longitude:  toEsriNumber(loc.longitude),
-      time:       toEsriNumber(loc.time),
-      model:      loc.model,
-      fix:        toEsriNumber(loc.fix),
-      sat:        toEsriNumber(loc.sat),
-      hdop:       toEsriNumber(loc.hdop),
-      vdop:       toEsriNumber(loc.vdop),
-      pdop:       toEsriNumber(loc.pdop),
-      ageofdgpsd: toEsriNumber(loc.ageofdgpsd),
-      remarks:    loc.remarks,
-    });
-
-    const feature: EsriFeature = {
-      attributes: attrs,
-      geometry:   { x: loc.longitude, y: loc.latitude, spatialReference: SR_4326 },
-    };
-
-    if (!remoteFeature) {
-      adds.push(feature);
-    } else {
-      const localTime = loc.last_edited_date ?? 0;
-      const remoteTime = (getAttrCaseInsensitive(remoteFeature.attributes, 'last_edited_date') as number | undefined) ?? 0;
-
-      if (localTime >= remoteTime) {
-        if (hasChanges(attrs, remoteFeature.attributes)) {
-          attrs['OBJECTID'] = getAttrCaseInsensitive(remoteFeature.attributes, 'OBJECTID');
-          updates.push(feature);
-        }
-      }
-    }
-  }
-
-  if (toAddLocally.length) await db.plotGpsPoints.bulkAdd(toAddLocally);
-  if (toUpdateLocally.length) await db.plotGpsPoints.bulkPut(toUpdateLocally);
-
-  const result = await applyEdits(LAYER.gps_point, adds, updates, token);
-  await logApplyResults('gps_points', result, adds, updates);
-  await updateLocalIds(db.plotGpsPoints, result, adds, updates);
-}
-
-// ---- Visits (table 3) ------------------------------------------------------
-
-async function syncVisits(token: string): Promise<void> {
-  await db.syncErrors.where('table_name').equals('visits').delete();
-
-  // Process deletes first
-  const deletedVisits = await db.deletedRecords.where('table_name').equals('visit').toArray();
-  const deleteIds = deletedVisits
-    .map(d => d.objectid)
-    .filter((id): id is number => typeof id === 'number');
-
-  if (deleteIds.length > 0) {
-    // console.log(deleteIds.length, 'visit records marked for deletion')
-    const deleteResult = await applyEdits(LAYER.visit, [], [], token, deleteIds);
-    if (deleteResult.deleteResults) {
-      const successfulDeleteIds = deleteResult.deleteResults
-        .filter(r => r.success)
-        .map(r => r.objectId);
-      // console.log(successfulDeleteIds.length, 'visit records deleted on server')
-      const toRemove = deletedVisits
-        .filter(d => d.objectid && successfulDeleteIds.includes(d.objectid))
-        .map(d => d.guid);
-      if (toRemove.length > 0) {
-        await db.deletedRecords.bulkDelete(toRemove);
-      }
-    }
-  }
-
-  const unsyncedDeletes = deletedVisits.filter(d => typeof d.objectid !== 'number').map(d => d.guid);
-  if (unsyncedDeletes.length > 0) {
-    // console.log(unsyncedDeletes.length, "unsynced visits to delete")
-    await db.deletedRecords.bulkDelete(unsyncedDeletes);
-  }
-
-  const remote = await queryAll(LAYER.visit, token);
-
-  const remoteByGuid = new Map<string, EsriFeature>();
-  for (const f of remote) {
-    const g = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    if (g) remoteByGuid.set(normalizeGuid(g), f);
-  }
-
-  const locals = await db.plotVisits.toArray();
-  const localByGuid = new Map(locals.map(v => [normalizeGuid(v.guid), v]));
-
-  const toAddLocally: IPlotVisit[] = [];
-  const toUpdateLocally: IPlotVisit[] = [];
-  const adds:    EsriFeature[] = [];
-  const updates: EsriFeature[] = [];
-
-  for (const f of remote) {
-    const rawGuid = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    const g = normalizeGuid(rawGuid);
-    if (!g) continue;
-
-    const a = f.attributes;
-    const remoteVisit: IPlotVisit = {
-      guid:             rawGuid || g,
-      plot_guid:        a['plot_guid'] as string,
-      measurement_date: a['measurement_date'] as number,
-      visit_number:     a['visit_number'] as number,
-      status:           a['status'] as string | undefined,
-      crew:             a['crew'] as string | undefined,
-      remarks:          a['remarks'] as string | undefined,
-      OBJECTID:         getAttrCaseInsensitive(a, 'OBJECTID') as number | undefined,
-      GlobalID:         getAttrCaseInsensitive(a, 'GlobalID') as string | undefined,
-      created_user:     a['created_user'] as string | undefined,
-      created_date:     a['created_date'] as number | undefined,
-      last_edited_user: a['last_edited_user'] as string | undefined,
-      last_edited_date: a['last_edited_date'] as number | undefined,
-    };
-
-    const localVisit = localByGuid.get(g);
-    if (!localVisit) {
-      toAddLocally.push(remoteVisit);
-    } else {
-      const localTime = localVisit.last_edited_date ?? 0;
-      const remoteTime = remoteVisit.last_edited_date ?? 0;
-      if (remoteTime > localTime || localVisit.OBJECTID === undefined || localVisit.OBJECTID === null || localVisit.GlobalID === undefined || localVisit.GlobalID === null) {
-        toUpdateLocally.push(remoteVisit);
-      }
-    }
-  }
-
-  for (const visit of locals) {
-    const g = normalizeGuid(visit.guid);
-    const remoteFeature = remoteByGuid.get(g);
-
-    const attrs = stripReadOnly({
-      guid:             visit.guid,
-      plot_guid:        visit.plot_guid,
-      measurement_date: toEsriNumber(visit.measurement_date),
-      visit_number:     toEsriNumber(visit.visit_number),
-      status:           visit.status ?? null,
-      crew:             visit.crew ?? null,
-      remarks:          visit.remarks ?? null,
-    });
-
-    if (!remoteFeature) {
-      adds.push({ attributes: attrs });
-    } else {
-      const localTime = visit.last_edited_date ?? 0;
-      const remoteTime = (getAttrCaseInsensitive(remoteFeature.attributes, 'last_edited_date') as number | undefined) ?? 0;
-
-      if (localTime >= remoteTime) {
-        if (hasChanges(attrs, remoteFeature.attributes)) {
-          attrs['OBJECTID'] = getAttrCaseInsensitive(remoteFeature.attributes, 'OBJECTID');
-          updates.push({ attributes: attrs });
-        }
-      }
-    }
-  }
-
-  if (toAddLocally.length) await db.plotVisits.bulkAdd(toAddLocally);
-  if (toUpdateLocally.length) await db.plotVisits.bulkPut(toUpdateLocally);
-
-  const result = await applyEdits(LAYER.visit, adds, updates, token);
-  await logApplyResults('visits', result, adds, updates);
-  await updateLocalIds(db.plotVisits, result, adds, updates);
-}
-
-// ---- Trees (table 2) -------------------------------------------------------
-
-async function syncTrees(token: string): Promise<void> {
-  await db.syncErrors.where('table_name').equals('trees').delete();
-
-  // Process deletes first
-  const deletedTrees = await db.deletedRecords.where('table_name').equals('tree').toArray();
-  const deleteIds = deletedTrees
-    .map(d => d.objectid)
-    .filter((id): id is number => typeof id === 'number');
-
-  if (deleteIds.length > 0) {
-    const deleteResult = await applyEdits(LAYER.tree, [], [], token, deleteIds);
-    if (deleteResult.deleteResults) {
-      const successfulDeleteIds = deleteResult.deleteResults
-        .filter(r => r.success)
-        .map(r => r.objectId);
-      const toRemove = deletedTrees
-        .filter(d => d.objectid && successfulDeleteIds.includes(d.objectid))
-        .map(d => d.guid);
-      if (toRemove.length > 0) {
-        await db.deletedRecords.bulkDelete(toRemove);
-      }
-    }
-  }
-
-  const unsyncedDeletes = deletedTrees.filter(d => typeof d.objectid !== 'number').map(d => d.guid);
-  if (unsyncedDeletes.length > 0) {
-    await db.deletedRecords.bulkDelete(unsyncedDeletes);
-  }
-
-  const remote = await queryAll(LAYER.tree, token);
-
-  const remoteByGuid = new Map<string, EsriFeature>();
-  for (const f of remote) {
-    const g = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    if (g) remoteByGuid.set(normalizeGuid(g), f);
-  }
-
-  const locals = await db.plotTrees.toArray();
-  const localByGuid = new Map(locals.map(t => [normalizeGuid(t.guid), t]));
-
-  const toAddLocally: ITree[] = [];
-  const toUpdateLocally: ITree[] = [];
-  const adds:    EsriFeature[] = [];
-  const updates: EsriFeature[] = [];
-
-  for (const f of remote) {
-    const rawGuid = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    const g = normalizeGuid(rawGuid);
-    if (!g) continue;
-
-    const a = f.attributes;
-    const remoteTree: ITree = {
-      guid:             rawGuid || g,
-      plot_guid:        a['plot_guid'] as string,
-      tree_num:         a['tree_num'] as number,
-      sp:               a['sp'] as string,
-      az:               a['az'] as number | undefined,
-      hd:               a['hd'] as number | undefined,
-      ref:              a['ref'] as string | undefined,
-      sd:               a['sd'] as number | undefined,
-      remarks:          a['remarks'] as string | undefined,
-      OBJECTID:         getAttrCaseInsensitive(a, 'OBJECTID') as number | undefined,
-      GlobalID:         getAttrCaseInsensitive(a, 'GlobalID') as string | undefined,
-      created_user:     a['created_user'] as string | undefined,
-      created_date:     a['created_date'] as number | undefined,
-      last_edited_user: a['last_edited_user'] as string | undefined,
-      last_edited_date: a['last_edited_date'] as number | undefined,
-    };
-
-    const localTree = localByGuid.get(g);
-    if (!localTree) {
-      toAddLocally.push(remoteTree);
-    } else {
-      const localTime = localTree.last_edited_date ?? 0;
-      const remoteTime = remoteTree.last_edited_date ?? 0;
-      if (remoteTime > localTime || localTree.OBJECTID === undefined || localTree.OBJECTID === null || localTree.GlobalID === undefined || localTree.GlobalID === null) {
-        toUpdateLocally.push(remoteTree);
-      }
-    }
-  }
-
-  for (const tree of locals) {
-    const g = normalizeGuid(tree.guid);
-    const remoteFeature = remoteByGuid.get(g);
-
-    const attrs = stripReadOnly({
-      guid:      tree.guid,
-      plot_guid: tree.plot_guid,
-      tree_num:  toEsriNumber(tree.tree_num),
-      sp:        tree.sp,
-      az:        toEsriNumber(tree.az),
-      hd:        toEsriNumber(tree.hd),
-      ref:       toEsriNumber(tree.ref),
-      sd:        toEsriNumber(tree.sd),
-      remarks:   tree.remarks ?? null,
-    });
-
-    if (!remoteFeature) {
-      adds.push({ attributes: attrs });
-    } else {
-      const localTime = tree.last_edited_date ?? 0;
-      const remoteTime = (getAttrCaseInsensitive(remoteFeature.attributes, 'last_edited_date') as number | undefined) ?? 0;
-
-      if (localTime >= remoteTime) {
-        if (hasChanges(attrs, remoteFeature.attributes)) {
-          attrs['OBJECTID'] = getAttrCaseInsensitive(remoteFeature.attributes, 'OBJECTID');
-          updates.push({ attributes: attrs });
-        }
-      }
-    }
-  }
-
-  if (toAddLocally.length) await db.plotTrees.bulkAdd(toAddLocally);
-  if (toUpdateLocally.length) await db.plotTrees.bulkPut(toUpdateLocally);
-
-  const result = await applyEdits(LAYER.tree, adds, updates, token);
-  await logApplyResults('trees', result, adds, updates);
-  await updateLocalIds(db.plotTrees, result, adds, updates);
-}
-
-// ---- Measurements (table 4) ------------------------------------------------
-
-async function syncMeasurements(token: string): Promise<void> {
-  await db.syncErrors.where('table_name').equals('measurements').delete();
-
-  // Process deletes first
-  const deletedMeas = await db.deletedRecords.where('table_name').equals('measurement').toArray();
-  const deleteIds = deletedMeas
-    .map(d => d.objectid)
-    .filter((id): id is number => typeof id === 'number');
-
-  if (deleteIds.length > 0) {
-    const deleteResult = await applyEdits(LAYER.measurement, [], [], token, deleteIds);
-    if (deleteResult.deleteResults) {
-      const successfulDeleteIds = deleteResult.deleteResults
-        .filter(r => r.success)
-        .map(r => r.objectId);
-      const toRemove = deletedMeas
-        .filter(d => d.objectid && successfulDeleteIds.includes(d.objectid))
-        .map(d => d.guid);
-      if (toRemove.length > 0) {
-        await db.deletedRecords.bulkDelete(toRemove);
-      }
-    }
-  }
-
-  const unsyncedDeletes = deletedMeas.filter(d => typeof d.objectid !== 'number').map(d => d.guid);
-  if (unsyncedDeletes.length > 0) {
-    await db.deletedRecords.bulkDelete(unsyncedDeletes);
-  }
-
-  const remote = await queryAll(LAYER.measurement, token);
-
-  const remoteByGuid = new Map<string, EsriFeature>();
-  for (const f of remote) {
-    const g = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    if (g) remoteByGuid.set(normalizeGuid(g), f);
-  }
-
-  const locals = await db.treeMeasurements.toArray();
-  const localByGuid = new Map(locals.map(m => [normalizeGuid(m.guid), m]));
-
-  const toAddLocally: ITreeMeasurement[] = [];
-  const toUpdateLocally: ITreeMeasurement[] = [];
-  const adds:    EsriFeature[] = [];
-  const updates: EsriFeature[] = [];
-
-  for (const f of remote) {
-    const rawGuid = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    const g = normalizeGuid(rawGuid);
-    if (!g) continue;
-
-    const a = f.attributes;
-    const remoteM: ITreeMeasurement = {
-      guid:       rawGuid || g,
-      tree_guid:  a['tree_guid'] as string,
-      visit_guid: a['visit_guid'] as string,
-      gp:         a['gp'] as string,
-      gt:         a['gt'] as number,
-      dbh:        a['dbh'] as number,
-      s:          a['s'] as number,
-      fc:         a['fc'] as number | undefined,
-      ht:         a['ht'] as number | undefined,
-      age:        a['age'] as number | undefined,
-      cr:         a['cr'] as number | undefined,
-      cc:         a['cc'] as number | undefined,
-      d1:         a['d1'] as number | undefined,
-      s1:         a['s1'] as number | undefined,
-      d2:         a['d2'] as number | undefined,
-      s2:         a['s2'] as number | undefined,
-      d3:         a['d3'] as number | undefined,
-      s3:         a['s3'] as number | undefined,
-      def1:       a['def1'] as number | undefined,
-      def2:       a['def2'] as number | undefined,
-      def3:       a['def3'] as number | undefined,
-      c:          a['c'] as number | undefined,
-      bt:         a['bt'] as number | undefined,
-      upstht:     a['upstht'] as number | undefined,
-      upstd:      a['upstd'] as number | undefined,
-      fiveyr:     a['fiveyr'] as number | undefined,
-      tenyr:      a['tenyr'] as number | undefined,
-      remarks:    a['remarks'] as string | undefined,
-      OBJECTID:   getAttrCaseInsensitive(a, 'OBJECTID') as number | undefined,
-      GlobalID:   getAttrCaseInsensitive(a, 'GlobalID') as string | undefined,
-      created_user:     a['created_user'] as string | undefined,
-      created_date:     a['created_date'] as number | undefined,
-      last_edited_user: a['last_edited_user'] as string | undefined,
-      last_edited_date: a['last_edited_date'] as number | undefined,
-    };
-
-    const localM = localByGuid.get(g);
-    if (!localM) {
-      toAddLocally.push(remoteM);
-    } else {
-      const localTime = localM.last_edited_date ?? 0;
-      const remoteTime = remoteM.last_edited_date ?? 0;
-      if (remoteTime > localTime || localM.OBJECTID === undefined || localM.OBJECTID === null || localM.GlobalID === undefined || localM.GlobalID === null) {
-        console.log('Update local copy:', new Date(remoteTime).toISOString(), new Date(localTime).toISOString(), remoteM['dbh'], remoteM['remarks'])
-        toUpdateLocally.push(remoteM);
-      }
-    }
-  }
-
-  for (const m of locals) {
-    const g = normalizeGuid(m.guid);
-    const remoteFeature = remoteByGuid.get(g);
-
-    const attrs = stripReadOnly({
-      guid:       m.guid,
-      tree_guid:  m.tree_guid,
-      visit_guid: m.visit_guid,
-      gp:         m.gp,
-      gt:         toEsriNumber(m.gt),
-      dbh:        toEsriNumber(m.dbh),
-      s:          toEsriNumber(m.s),
-      fc:         toEsriNumber(m.fc),
-      ht:         toEsriNumber(m.ht),
-      age:        toEsriNumber(m.age),
-      cr:         toEsriNumber(m.cr),
-      cc:         toEsriNumber(m.cc),
-      d1:         toEsriNumber(m.d1),
-      s1:         toEsriNumber(m.s1),
-      d2:         toEsriNumber(m.d2),
-      s2:         toEsriNumber(m.s2),
-      d3:         toEsriNumber(m.d3),
-      s3:         toEsriNumber(m.s3),
-      def1:       toEsriNumber(m.def1),
-      def2:       toEsriNumber(m.def2),
-      def3:       toEsriNumber(m.def3),
-      c:          toEsriNumber(m.c),
-      bt:         toEsriNumber(m.bt),
-      upstht:     toEsriNumber(m.upstht),
-      upstd:      toEsriNumber(m.upstd),
-      fiveyr:     toEsriNumber(m.fiveyr),
-      tenyr:      toEsriNumber(m.tenyr),
-      remarks:    m.remarks ?? null,
-    });
-
-    if (!remoteFeature) {
-      adds.push({ attributes: attrs });
-    } else {
-      const localTime = m.last_edited_date ?? 0;
-      const remoteTime = (getAttrCaseInsensitive(remoteFeature.attributes, 'last_edited_date') as number | undefined) ?? 0;
-
-      if (localTime >= remoteTime) {
-        if (hasChanges(attrs, remoteFeature.attributes)) {
-          attrs['OBJECTID'] = getAttrCaseInsensitive(remoteFeature.attributes, 'OBJECTID');
-          updates.push({ attributes: attrs });
-        }
-      }
-    }
-  }
-
-  if (toAddLocally.length) await db.treeMeasurements.bulkAdd(toAddLocally);
-  if (toUpdateLocally.length) await db.treeMeasurements.bulkPut(toUpdateLocally);
-
-  const result = await applyEdits(LAYER.measurement, adds, updates, token);
-  await logApplyResults('measurements', result, adds, updates);
-  await updateLocalIds(db.treeMeasurements, result, adds, updates);
-}
-
-// ---- Lookups (table 6) -----------------------------------------------------
-
-async function isLookupUsed(lookup: ILookups): Promise<boolean> {
-  const code = lookup.code;
-  if (!code) return false;
-
-  switch (lookup.feature) {
-    case 'sp': {
-      const count = await db.plotTrees.where('sp').equals(code).count();
-      return count > 0;
-    }
-    case 'gp': {
-      const count = await db.treeMeasurements.where('gp').equals(code).count();
-      return count > 0;
-    }
-    case 's': {
-      const numCode = Number(code);
-      if (!isNaN(numCode)) {
-        const count = await db.treeMeasurements.where('s').equals(numCode).count();
-        if (count > 0) return true;
-      }
-      const countStr = await db.treeMeasurements.where('s').equals(code).count();
-      return countStr > 0;
-    }
-    case 'cc': {
-      const numCode = Number(code);
-      if (!isNaN(numCode)) {
-        const count = await db.treeMeasurements.where('cc').equals(numCode).count();
-        if (count > 0) return true;
-      }
-      const countStr = await db.treeMeasurements.where('cc').equals(code).count();
-      return countStr > 0;
-    }
-    case 'c': {
-      const numCode = Number(code);
-      if (!isNaN(numCode)) {
-        const count = await db.treeMeasurements.where('c').equals(numCode).count();
-        if (count > 0) return true;
-      }
-      const countStr = await db.treeMeasurements.where('c').equals(code).count();
-      return countStr > 0;
-    }
-    default:
-      return false;
-  }
-}
-
-async function syncLookups(token: string): Promise<void> {
-  await db.syncErrors.where('table_name').equals('lookups').delete();
-  const remote = await queryAll(LAYER.lookup, token);
-
-  const remoteByGuid = new Map<string, EsriFeature>();
-  for (const f of remote) {
-    const g = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    if (g) remoteByGuid.set(normalizeGuid(g), f);
-  }
-
-  const locals = await db.lookups.toArray();
-  const localByGuid = new Map(locals.map(l => [normalizeGuid(l.guid), l]));
-
-  const toAddLocally: ILookups[] = [];
-  const toUpdateLocally: ILookups[] = [];
-  const toDeleteLocally: string[] = [];
-  const adds:    EsriFeature[] = [];
-  const updates: EsriFeature[] = [];
-
-  for (const f of remote) {
-    const rawGuid = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    const g = normalizeGuid(rawGuid);
-    if (!g) continue;
-
-    const a = f.attributes;
-    const remoteL: ILookups = {
-      guid:        rawGuid || g,
-      feature:     a['feature'] as string,
-      code:        a['code'] as string,
-      value:       a['value'] as string,
-      description: a['description'] as string,
-      OBJECTID:    getAttrCaseInsensitive(a, 'OBJECTID') as number | undefined,
-      GlobalID:    getAttrCaseInsensitive(a, 'GlobalID') as string | undefined,
-      created_user:     a['created_user'] as string | undefined,
-      created_date:     a['created_date'] as number | undefined,
-      last_edited_user: a['last_edited_user'] as string | undefined,
-      last_edited_date: a['last_edited_date'] as number | undefined,
-    };
-
-    const localL = localByGuid.get(g);
-    if (!localL) {
-      toAddLocally.push(remoteL);
-    } else {
-      const localTime = localL.last_edited_date ?? 0;
-      const remoteTime = remoteL.last_edited_date ?? 0;
-      if (remoteTime > localTime || localL.OBJECTID === undefined || localL.OBJECTID === null || localL.GlobalID === undefined || localL.GlobalID === null) {
-        toUpdateLocally.push(remoteL);
-      }
-    }
-  }
-
-  for (const lookup of locals) {
-    const g = normalizeGuid(lookup.guid);
-    const remoteFeature = remoteByGuid.get(g);
-
-    const attrs = stripReadOnly({
-      guid:        lookup.guid,
-      feature:     lookup.feature,
-      code:        lookup.code,
-      value:       lookup.value,
-      description: lookup.description,
-    });
-
-    if (!remoteFeature) {
-      console.log('No remote lookup:', attrs['feature'], attrs['code'])
-      if (lookup.OBJECTID === undefined || lookup.OBJECTID === null) {
-        console.log('Adding new')
-        adds.push({ attributes: attrs });
+      if (isAdd) {
+        adds.push(feature);
       } else {
-        const isUsed = await isLookupUsed(lookup);
-        if (!isUsed) {
-          console.log('Unused, deleting')
-          toDeleteLocally.push(lookup.guid);
-        } else {
-          console.log('In use, keeping')
-        }
-      }
-    } else {
-      const localTime = lookup.last_edited_date ?? 0;
-      const remoteTime = (getAttrCaseInsensitive(remoteFeature.attributes, 'last_edited_date') as number | undefined) ?? 0;
-
-      if (localTime >= remoteTime) {
-        if (hasChanges(attrs, remoteFeature.attributes)) {
-          attrs['OBJECTID'] = getAttrCaseInsensitive(remoteFeature.attributes, 'OBJECTID');
-          updates.push({ attributes: attrs });
-        }
+        attrs['OBJECTID'] = record.OBJECTID;
+        updates.push(feature);
       }
     }
   }
 
-  if (toAddLocally.length) await db.lookups.bulkAdd(toAddLocally);
-  if (toUpdateLocally.length) await db.lookups.bulkPut(toUpdateLocally);
-  if (toDeleteLocally.length) {
-    await db.lookups.bulkDelete(toDeleteLocally);
-    console.info(`[sync] lookups -- deleted ${toDeleteLocally.length} local lookup(s) because they were removed from the server`);
-  }
-
-  const result = await applyEdits(LAYER.lookup, adds, updates, token);
-  await logApplyResults('lookups', result, adds, updates);
-  await updateLocalIds(db.lookups, result, adds, updates);
+  return { adds, updates, deletes };
 }
 
-// ---- Edits (table 7) -------------------------------------------------------
+function buildFeatureAttributes(layerId: number, record: any): Record<string, unknown> {
+  let attrs: Record<string, unknown> = {};
 
-async function syncEdits(token: string): Promise<void> {
-  await db.syncErrors.where('table_name').equals('edits').delete();
-  const remote = await queryAll(LAYER.edit, token);
-
-  const remoteByGuid = new Map<string, EsriFeature>();
-  for (const f of remote) {
-    const g = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    if (g) remoteByGuid.set(normalizeGuid(g), f);
+  switch (layerId) {
+    case LAYER.plot:
+      attrs = {
+        guid:              record.guid,
+        plotid:            record.plotid,
+        established_date:  toEsriNumber(record.established),
+        planned_latitude:  toEsriNumber(record.planned_latitude),
+        planned_longitude: toEsriNumber(record.planned_longitude),
+        remarks:           record.remarks ?? null,
+      };
+      break;
+    case LAYER.gps_point:
+      attrs = {
+        guid:       record.guid,
+        plot_guid:  record.plot_guid,
+        latitude:   toEsriNumber(record.latitude),
+        longitude:  toEsriNumber(record.longitude),
+        time:       toEsriNumber(record.time),
+        model:      record.model,
+        fix:        toEsriNumber(record.fix),
+        sat:        toEsriNumber(record.sat),
+        hdop:       toEsriNumber(record.hdop),
+        vdop:       toEsriNumber(record.vdop),
+        pdop:       toEsriNumber(record.pdop),
+        ageofdgpsd: toEsriNumber(record.ageofdgpsd),
+        remarks:    record.remarks,
+      };
+      break;
+    case LAYER.visit:
+      attrs = {
+        guid:             record.guid,
+        plot_guid:        record.plot_guid,
+        measurement_date: toEsriNumber(record.measurement_date),
+        visit_number:     toEsriNumber(record.visit_number),
+        status:           record.status ?? null,
+        crew:             record.crew ?? null,
+        remarks:          record.remarks ?? null,
+      };
+      break;
+    case LAYER.tree:
+      attrs = {
+        guid:      record.guid,
+        plot_guid: record.plot_guid,
+        tree_num:  toEsriNumber(record.tree_num),
+        sp:        record.sp,
+        az:        toEsriNumber(record.az),
+        hd:        toEsriNumber(record.hd),
+        ref:       toEsriNumber(record.ref),
+        sd:        toEsriNumber(record.sd),
+        remarks:   record.remarks ?? null,
+      };
+      break;
+    case LAYER.measurement:
+      attrs = {
+        guid:       record.guid,
+        tree_guid:  record.tree_guid,
+        visit_guid: record.visit_guid,
+        gp:         record.gp,
+        gt:         toEsriNumber(record.gt),
+        dbh:        toEsriNumber(record.dbh),
+        s:          toEsriNumber(record.s),
+        fc:         toEsriNumber(record.fc),
+        ht:         toEsriNumber(record.ht),
+        age:        toEsriNumber(record.age),
+        cr:         toEsriNumber(record.cr),
+        cc:         toEsriNumber(record.cc),
+        d1:         toEsriNumber(record.d1),
+        s1:         toEsriNumber(record.s1),
+        d2:         toEsriNumber(record.d2),
+        s2:         toEsriNumber(record.s2),
+        d3:         toEsriNumber(record.d3),
+        s3:         toEsriNumber(record.s3),
+        def1:       toEsriNumber(record.def1),
+        def2:       toEsriNumber(record.def2),
+        def3:       toEsriNumber(record.def3),
+        c:          toEsriNumber(record.c),
+        bt:         toEsriNumber(record.bt),
+        upstht:     toEsriNumber(record.upstht),
+        upstd:      toEsriNumber(record.upstd),
+        fiveyr:     toEsriNumber(record.fiveyr),
+        tenyr:      toEsriNumber(record.tenyr),
+        remarks:    record.remarks ?? null,
+      };
+      break;
+    case LAYER.lookup:
+      attrs = {
+        guid:        record.guid,
+        feature:     record.feature,
+        code:        record.code,
+        value:       record.value,
+        description: record.description,
+      };
+      break;
+    case LAYER.edit:
+      attrs = {
+        guid:        record.guid,
+        table_name:  record.table_name,
+        record_guid: record.record_guid,
+        field_name:  record.field_name,
+        old_value:   record.old_value,
+        new_value:   record.new_value,
+        reason:      record.reason,
+        edit_date:   toEsriNumber(record.edit_date),
+      };
+      break;
+    default:
+      throw new Error(`Unsupported layer ID: ${layerId}`);
   }
 
-  const locals = await db.edits.toArray();
-  const localByGuid = new Map(locals.map(e => [normalizeGuid(e.guid), e]));
-
-  const toAddLocally: IEdit[] = [];
-  const toUpdateLocally: IEdit[] = [];
-  const adds:    EsriFeature[] = [];
-  const updates: EsriFeature[] = [];
-
-  for (const f of remote) {
-    const rawGuid = getAttrCaseInsensitive(f.attributes, 'guid') as string | undefined;
-    const g = normalizeGuid(rawGuid);
-    if (!g) continue;
-
-    const a = f.attributes;
-    const remoteE: IEdit = {
-      guid:        rawGuid || g,
-      table_name:  a['table_name'] as string,
-      record_guid: a['record_guid'] as string,
-      field_name:  a['field_name'] as string,
-      old_value:   a['old_value'] as string,
-      new_value:   a['new_value'] as string,
-      reason:      a['reason'] as string,
-      edit_date:   a['edit_date'] as number,
-      OBJECTID:    getAttrCaseInsensitive(a, 'OBJECTID') as number | undefined,
-      GlobalID:    getAttrCaseInsensitive(a, 'GlobalID') as string | undefined,
-      created_user:     a['created_user'] as string | undefined,
-      created_date:     a['created_date'] as number | undefined,
-      last_edited_user: a['last_edited_user'] as string | undefined,
-      last_edited_date: a['last_edited_date'] as number | undefined,
-    };
-
-    const localE = localByGuid.get(g);
-    if (!localE) {
-      toAddLocally.push(remoteE);
-    } else {
-      const localTime = localE.last_edited_date ?? 0;
-      const remoteTime = remoteE.last_edited_date ?? 0;
-      if (remoteTime > localTime || localE.OBJECTID === undefined || localE.OBJECTID === null || localE.GlobalID === undefined || localE.GlobalID === null) {
-        toUpdateLocally.push(remoteE);
-      }
-    }
-  }
-
-  for (const edit of locals) {
-    const g = normalizeGuid(edit.guid);
-    const remoteFeature = remoteByGuid.get(g);
-
-    const attrs = stripReadOnly({
-      guid:        edit.guid,
-      table_name:  edit.table_name,
-      record_guid: edit.record_guid,
-      field_name:  edit.field_name,
-      old_value:   edit.old_value,
-      new_value:   edit.new_value,
-      reason:      edit.reason,
-      edit_date:   toEsriNumber(edit.edit_date),
-    });
-
-    if (!remoteFeature) {
-      adds.push({ attributes: attrs });
-    } else {
-      const localTime = edit.last_edited_date ?? 0;
-      const remoteTime = (getAttrCaseInsensitive(remoteFeature.attributes, 'last_edited_date') as number | undefined) ?? 0;
-
-      if (localTime >= remoteTime) {
-        if (hasChanges(attrs, remoteFeature.attributes)) {
-          attrs['OBJECTID'] = getAttrCaseInsensitive(remoteFeature.attributes, 'OBJECTID');
-          updates.push({ attributes: attrs });
-        }
-      }
-    }
-  }
-
-  if (toAddLocally.length) await db.edits.bulkAdd(toAddLocally);
-  if (toUpdateLocally.length) await db.edits.bulkPut(toUpdateLocally);
-
-  const result = await applyEdits(LAYER.edit, adds, updates, token);
-  await logApplyResults('edits', result, adds, updates);
-  await updateLocalIds(db.edits, result, adds, updates);
-}
-
-// ---------------------------------------------------------------------------
-// Logging helper
-// ---------------------------------------------------------------------------
-
-async function logApplyResults(
-  table: string,
-  result: ApplyEditsResponse,
-  adds: EsriFeature[],
-  updates: EsriFeature[]
-): Promise<void> {
-  const failedAdds    = (result.addResults    ?? []).filter(r => !r.success);
-  const failedUpdates = (result.updateResults ?? []).filter(r => !r.success);
-
-  if (failedAdds.length || failedUpdates.length) {
-    console.warn(`[sync] ${table} -- ${failedAdds.length} add failure(s), ${failedUpdates.length} update failure(s)`);
-    for (const r of [...failedAdds, ...failedUpdates]) {
-      console.warn(`  globalId=${r.globalId} error=${r.error?.code} ${r.error?.description}`);
-    }
-
-    const errorsToInsert: ISyncError[] = [];
-    if (result.addResults) {
-      for (let i = 0; i < result.addResults.length; i++) {
-        const r = result.addResults[i];
-        if (!r.success) {
-          const guid = adds[i]?.attributes?.['guid'] as string;
-          errorsToInsert.push({
-            table_name: table,
-            record_guid: guid || r.globalId || 'unknown',
-            error_message: r.error ? `Code ${r.error.code}: ${r.error.description}` : 'Unknown error',
-            timestamp: Date.now()
-          });
-        }
-      }
-    }
-    if (result.updateResults) {
-      for (let i = 0; i < result.updateResults.length; i++) {
-        const r = result.updateResults[i];
-        if (!r.success) {
-          const guid = updates[i]?.attributes?.['guid'] as string;
-          errorsToInsert.push({
-            table_name: table,
-            record_guid: guid || r.globalId || 'unknown',
-            error_message: r.error ? `Code ${r.error.code}: ${r.error.description}` : 'Unknown error',
-            timestamp: Date.now()
-          });
-        }
-      }
-    }
-    if (errorsToInsert.length > 0) {
-      await db.syncErrors.bulkAdd(errorsToInsert);
-    }
-  } else {
-    const added   = (result.addResults    ?? []).length;
-    const updated = (result.updateResults ?? []).length;
-    if (added || updated) {
-      console.info(`[sync] ${table} -- pushed ${added} add(s), ${updated} update(s)`);
-    }
-  }
+  return stripReadOnly(attrs);
 }
 
 async function updateLocalIds(
@@ -1183,6 +567,84 @@ async function updateLocalIds(
   }
 }
 
+async function logAppliedResultsForLayer(
+  layerId: number,
+  tableName: string,
+  result: ApplyEditsResponse,
+  adds: EsriFeature[],
+  updates: EsriFeature[]
+): Promise<void> {
+  const failedAdds    = (result.addResults    ?? []).filter(r => !r.success);
+  const failedUpdates = (result.updateResults ?? []).filter(r => !r.success);
+
+  if (failedAdds.length || failedUpdates.length) {
+    console.warn(`[sync] ${tableName} -- ${failedAdds.length} add failure(s), ${failedUpdates.length} update failure(s)`);
+    for (const r of [...failedAdds, ...failedUpdates]) {
+      console.warn(`  globalId=${r.globalId} error=${r.error?.code} ${r.error?.description}`);
+    }
+
+    const errorsToInsert: ISyncError[] = [];
+    if (result.addResults) {
+      for (let i = 0; i < result.addResults.length; i++) {
+        const r = result.addResults[i];
+        if (!r.success) {
+          const guid = getAttrCaseInsensitive(adds[i]?.attributes, 'guid') as string | undefined;
+          errorsToInsert.push({
+            table_name: tableName,
+            record_guid: guid || r.globalId || 'unknown',
+            error_message: r.error ? `Code ${r.error.code}: ${r.error.description}` : 'Unknown error',
+            timestamp: Date.now()
+          });
+        }
+      }
+    }
+    if (result.updateResults) {
+      for (let i = 0; i < result.updateResults.length; i++) {
+        const r = result.updateResults[i];
+        if (!r.success) {
+          const guid = getAttrCaseInsensitive(updates[i]?.attributes, 'guid') as string | undefined;
+          errorsToInsert.push({
+            table_name: tableName,
+            record_guid: guid || r.globalId || 'unknown',
+            error_message: r.error ? `Code ${r.error.code}: ${r.error.description}` : 'Unknown error',
+            timestamp: Date.now()
+          });
+        }
+      }
+    }
+    if (errorsToInsert.length > 0) {
+      await db.syncErrors.bulkAdd(errorsToInsert);
+    }
+  } else {
+    const added   = (result.addResults    ?? []).length;
+    const updated = (result.updateResults ?? []).length;
+    if (added || updated) {
+      console.info(`[sync] ${tableName} -- pushed ${added} add(s), ${updated} update(s)`);
+    }
+  }
+}
+
+export async function unregisterCurrentReplica(token: string): Promise<void> {
+  const replicaId = localStorage.getItem('tallypad_replica_id');
+  if (!replicaId) return;
+
+  const url = `${SERVICE_URL}/unregisterReplica`;
+  const params = {
+    replicaID: replicaId,
+    f: 'json'
+  };
+
+  try {
+    const res = await esriPost(url, params, token) as { success?: boolean };
+    console.info('[sync] Unregistered replica:', replicaId, res);
+  } catch (err) {
+    console.warn('[sync] Failed to unregister replica on server:', err);
+  } finally {
+    localStorage.removeItem('tallypad_replica_id');
+    localStorage.removeItem('tallypad_replica_server_gen');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -1192,12 +654,6 @@ export interface SyncResult {
   errors: Record<string, string>;
 }
 
-/**
- * Run a full bidirectional sync for all tables.
- *
- * Order matters: parents before children to avoid FK violations on the server.
- *   plots -> GpsPoints -> visits -> trees -> measurements -> lookups -> edits
- */
 export type SyncStep = 'plots' | 'gps_points' | 'visits' | 'trees' | 'measurements' | 'lookups' | 'edits';
 export type SyncStatus = 'pending' | 'syncing' | 'completed' | 'failed';
 
@@ -1230,46 +686,267 @@ export async function syncAll(
 
   const errors: Record<string, string> = {};
 
+  console.log('syncAll');
+
+  const allSteps: SyncStep[] = ['plots', 'gps_points', 'visits', 'trees', 'measurements', 'lookups', 'edits'];
   if (onProgress) {
-    const allSteps: SyncStep[] = ['plots', 'gps_points', 'visits', 'trees', 'measurements', 'lookups', 'edits'];
     for (const step of allSteps) {
       onProgress({ step, status: 'pending' });
     }
   }
 
-  const steps: [SyncStep, () => Promise<void>][] = [
-    ['plots',        () => syncPlots(esriToken)],
-    ['gps_points',   () => syncGpsPoints(esriToken)],
-    ['visits',       () => syncVisits(esriToken)],
-    ['trees',        () => syncTrees(esriToken)],
-    ['measurements', () => syncMeasurements(esriToken)],
-    ['lookups',      () => syncLookups(esriToken)],
-    ['edits',        () => syncEdits(esriToken)],
-  ];
-
-  for (const [name, fn] of steps) {
-    try {
+  try {
+    const replicaId = localStorage.getItem('tallypad_replica_id');
+    if (!replicaId) {
+      // --------------------------------------------------------
+      // Phase 1: Create Replica & Initial Seed
+      // --------------------------------------------------------
+      console.info('[sync] No active replica found. Registering new replica...');
+      
       if (onProgress) {
-        onProgress({ step: name, status: 'syncing' });
+        onProgress({ step: 'plots', status: 'syncing', message: 'Creating replica...' });
       }
-      await fn();
-      if (onProgress) {
-        onProgress({ step: name, status: 'completed' });
+
+      const layerQueries: Record<number, { where: string; useGeometry: boolean; queryOption: string }> = {};
+      for (const id of [LAYER.plot, LAYER.tree, LAYER.visit, LAYER.measurement, LAYER.gps_point, LAYER.lookup, LAYER.edit]) {
+        layerQueries[id] = {
+          where: '1=1',
+          useGeometry: false,
+          queryOption: 'useFilter'
+        };
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`[sync] ${name} failed:`, message);
-      errors[name] = message;
 
-      await db.syncErrors.add({
-        table_name: name,
-        record_guid: 'ALL',
-        error_message: message,
-        timestamp: Date.now()
-      });
+      const params: Record<string, string> = {
+        replicaName: `Tallypad_Replica_${Date.now()}`,
+        layers: JSON.stringify([LAYER.plot, LAYER.tree, LAYER.visit, LAYER.measurement, LAYER.gps_point, LAYER.lookup, LAYER.edit]),
+        layerQueries: JSON.stringify(layerQueries),
+        syncModel: 'perReplica',
+        syncDirection: 'bidirectional',
+        dataFormat: 'json',
+        async: 'false',
+        transportType: 'esriTransportTypeEmbedded',
+        returnAttachments: 'false',
+        returnAttachmentsDataByUrl: 'false',
+      };
 
+      const url = `${SERVICE_URL}/createReplica`;
+      const result = await esriPost(url, params, esriToken) as any;
+
+      const newReplicaId = result.replicaID ?? result.replicaId;
+      const serverGen = result.replicaServerGen ?? result.serverGen;
+
+      if (!newReplicaId) {
+        throw new Error('Server did not return a valid replica ID.');
+      }
+
+      // Seed the database
+         const responseLayers = [
+        ...(result.layers ?? result.layerData ?? []),
+        ...(result.tables ?? result.tableData ?? [])
+      ] as any[];
+      for (const stepName of allSteps) {
+        if (onProgress) {
+          onProgress({ step: stepName, status: 'syncing', message: 'Applying data...' });
+        }
+        
+        let layerId = -1;
+        if (stepName === 'plots') layerId = LAYER.plot;
+        else if (stepName === 'gps_points') layerId = LAYER.gps_point;
+        else if (stepName === 'visits') layerId = LAYER.visit;
+        else if (stepName === 'trees') layerId = LAYER.tree;
+        else if (stepName === 'measurements') layerId = LAYER.measurement;
+        else if (stepName === 'lookups') layerId = LAYER.lookup;
+        else if (stepName === 'edits') layerId = LAYER.edit;
+
+        const layerObj = responseLayers.find(l => (l.id !== undefined ? l.id : l.layerId) === layerId);
+        if (layerObj && layerObj.features) {
+          await applyRemoteFeatures(layerId, layerObj.features);
+        }
+        if (onProgress) {
+          onProgress({ step: stepName, status: 'completed' });
+        }
+      }
+
+      localStorage.setItem('tallypad_replica_id', newReplicaId);
+      localStorage.setItem('tallypad_replica_server_gen', String(serverGen));
+    } else {
+      // --------------------------------------------------------
+      // Phase 2: Synchronize Replica (Incremental)
+      // --------------------------------------------------------
+      console.info(`[sync] Found active replica: ${replicaId}. Synchronizing...`);
+
+      const lastSyncTime = Number(localStorage.getItem('tallypad_last_sync_time') || 0);
+      const replicaServerGen = localStorage.getItem('tallypad_replica_server_gen') || '0';
+
+      const localEditsMap: Record<number, { adds: EsriFeature[], updates: EsriFeature[] }> = {};
+      const editsPayload: any[] = [];
+
+      // Step 2.1: Gather local edits layer-by-layer
+      for (const stepName of allSteps) {
+        if (onProgress) {
+          onProgress({ step: stepName, status: 'syncing', message: 'Preparing edits...' });
+        }
+
+        let layerId = -1;
+        if (stepName === 'plots') layerId = LAYER.plot;
+        else if (stepName === 'gps_points') layerId = LAYER.gps_point;
+        else if (stepName === 'visits') layerId = LAYER.visit;
+        else if (stepName === 'trees') layerId = LAYER.tree;
+        else if (stepName === 'measurements') layerId = LAYER.measurement;
+        else if (stepName === 'lookups') layerId = LAYER.lookup;
+        else if (stepName === 'edits') layerId = LAYER.edit;
+
+        const { adds, updates, deletes } = await getLocalEditsForLayer(layerId, lastSyncTime);
+        localEditsMap[layerId] = { adds, updates };
+
+        if (adds.length > 0 || updates.length > 0 || deletes.length > 0) {
+          editsPayload.push({
+            id: layerId,
+            adds,
+            updates,
+            deletes
+          });
+        }
+      }
+
+      // Step 2.2: Make the synchronize replica request
       if (onProgress) {
-        onProgress({ step: name, status: 'failed', message });
+        onProgress({ step: 'plots', status: 'syncing', message: 'Sending synchronization request...' });
+      }
+
+      const params: Record<string, string> = {
+        replicaID: replicaId,
+        replicaServerGen,
+        syncDirection: 'bidirectional',
+        transportType: 'esriTransportTypeEmbedded',
+        f: 'json'
+      };
+
+      if (editsPayload.length > 0) {
+        params.edits = JSON.stringify(editsPayload);
+      }
+
+      const url = `${SERVICE_URL}/synchronizeReplica`;
+      let result: any;
+      try {
+        result = await esriPost(url, params, esriToken);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('Replica not found') || msg.includes('replica not found') || msg.includes('400')) {
+          console.warn('[sync] Server replica invalid or expired. Re-creating replica...');
+          localStorage.removeItem('tallypad_replica_id');
+          localStorage.removeItem('tallypad_replica_server_gen');
+          return await syncAll(state, onProgress);
+        }
+        throw err;
+      }
+
+      const newServerGen = result.replicaServerGen ?? result.serverGen;
+      if (newServerGen !== undefined) {
+        localStorage.setItem('tallypad_replica_server_gen', String(newServerGen));
+      }
+
+      // Step 2.3: Apply results and remote edits layer-by-layer
+      const editResults = (result.editResults ?? result.submitResults ?? []) as any[];
+      const remoteEdits = (
+        result.edits ?? 
+        (result.layers || result.tables ? [...(result.layers ?? []), ...(result.tables ?? [])] : [])
+      ) as any[];
+
+      for (const stepName of allSteps) {
+        if (onProgress) {
+          onProgress({ step: stepName, status: 'syncing', message: 'Applying updates...' });
+        }
+
+        let layerId = -1;
+        if (stepName === 'plots') layerId = LAYER.plot;
+        else if (stepName === 'gps_points') layerId = LAYER.gps_point;
+        else if (stepName === 'visits') layerId = LAYER.visit;
+        else if (stepName === 'trees') layerId = LAYER.tree;
+        else if (stepName === 'measurements') layerId = LAYER.measurement;
+        else if (stepName === 'lookups') layerId = LAYER.lookup;
+        else if (stepName === 'edits') layerId = LAYER.edit;
+
+        const dbTable = LAYER_TO_TABLE[layerId];
+
+        // 1. Process upload results
+        const er = editResults.find(r => (r.id !== undefined ? r.id : r.layerId) === layerId);
+        if (er && dbTable) {
+          const localEdits = localEditsMap[layerId];
+          const layerResult: ApplyEditsResponse = {
+            addResults: er.addResults,
+            updateResults: er.updateResults,
+            deleteResults: er.deleteResults
+          };
+          if (localEdits) {
+            await logAppliedResultsForLayer(layerId, stepName, layerResult, localEdits.adds, localEdits.updates);
+            await updateLocalIds(dbTable, layerResult, localEdits.adds, localEdits.updates);
+          }
+
+          // Clear local deletes if they were successful
+          if (er.deleteResults && er.deleteResults.length > 0) {
+            const successfulDeleteIds = er.deleteResults
+              .filter((r: any) => r.success)
+              .map((r: any) => r.objectId || r.globalId);
+
+            if (successfulDeleteIds.length > 0) {
+              let deleteTableName = '';
+              if (dbTable === db.plotVisits) deleteTableName = 'visit';
+              else if (dbTable === db.plotTrees) deleteTableName = 'tree';
+              else if (dbTable === db.treeMeasurements) deleteTableName = 'measurement';
+
+              if (deleteTableName) {
+                const deletedRecords = await db.deletedRecords
+                  .where('table_name')
+                  .equals(deleteTableName)
+                  .toArray();
+                const toRemove = deletedRecords
+                  .filter(d => (d.objectid && successfulDeleteIds.includes(d.objectid)) || (d.globalid && successfulDeleteIds.includes(d.globalid)))
+                  .map(d => d.guid);
+                if (toRemove.length > 0) {
+                  await db.deletedRecords.bulkDelete(toRemove);
+                }
+              }
+            }
+          }
+        }
+
+        // 2. Process remote download edits
+        const re = remoteEdits.find(e => (e.id !== undefined ? e.id : e.layerId) === layerId);
+        if (re && re.features) {
+          const features = re.features;
+          if (features.adds && features.adds.length > 0) {
+            await applyRemoteFeatures(layerId, features.adds);
+          }
+          if (features.updates && features.updates.length > 0) {
+            await applyRemoteFeatures(layerId, features.updates);
+          }
+          const deletes = features.deletes ?? features.deleteIds ?? [];
+          if (deletes.length > 0) {
+            await applyRemoteDeletes(layerId, deletes);
+       }
+        }
+
+        if (onProgress) {
+          onProgress({ step: stepName, status: 'completed' });
+        }
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[sync] Sync failed:', message);
+    errors['sync'] = message;
+
+    await db.syncErrors.add({
+      table_name: 'sync',
+      record_guid: 'ALL',
+      error_message: message,
+      timestamp: Date.now()
+    });
+
+    if (onProgress) {
+      for (const step of allSteps) {
+        onProgress({ step, status: 'failed', message });
       }
     }
   }
@@ -1278,38 +955,17 @@ export async function syncAll(
   return { success: Object.keys(errors).length === 0, errors };
 }
 
-/**
- * Sync a single named layer / table.
- * Useful for targeted refreshes, e.g. immediately after a local edit.
- */
-export async function syncTable(
-  table: keyof typeof LAYER,
-  state: ReturnType<typeof useAppStore>,
-): Promise<void> {
-  if (state.isTokenExpired.value && state.esriRefreshToken.value) {
-    const refreshResult = await state.refreshEsriToken();
-    if (refreshResult === 'PERMANENT_FAILURE') {
-      state.logoutEsri();
-      throw new Error('ESRI session expired. Please log in again.');
-    } else if (!refreshResult) {
-      throw new Error('Network error: Unable to refresh ESRI token.');
-    }
-  }
-
-  const esriToken = state.esriToken.value;
-  if (!esriToken) {
-    throw new Error('No ESRI token available');
-  }
-
-  const dispatch: Record<keyof typeof LAYER, () => Promise<void>> = {
-    plot:        () => syncPlots(esriToken),
-    gps_point:    () => syncGpsPoints(esriToken),
-    visit:       () => syncVisits(esriToken),
-    tree:        () => syncTrees(esriToken),
-    measurement: () => syncMeasurements(esriToken),
-    lookup:      () => syncLookups(esriToken),
-    edit:        () => syncEdits(esriToken),
-  };
-  await dispatch[table]();
-  await state.checkSyncErrors();
-}
+// /**
+//  * Sync a single named layer / table.
+//  * Since synchronization under the replica model is atomic, this syncs all tables.
+//  */
+// export async function syncTable(
+//   table: keyof typeof LAYER,
+//   state: ReturnType<typeof useAppStore>,
+// ): Promise<void> {
+//   const res = await syncAll(state);
+//   if (!res.success) {
+//     const msg = res.errors ? Object.values(res.errors).join(', ') : 'Unknown error';
+//     throw new Error(`Sync table failed: ${msg}`);
+//   }
+// }
